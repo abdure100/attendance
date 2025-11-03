@@ -1,5 +1,7 @@
-name: datasheets
-description: ABA Data Collection App with FileMaker Integration
+name: sphere_datasheets
+description: >
+  ABA Data Collection App with FileMaker Integration.
+  A modern Flutter application for recording, tracking, and syncing ABA session data through FileMaker.
 
 publish_to: 'none'
 
@@ -28,10 +30,6 @@ dependencies:
   # Local storage
   shared_preferences: ^2.2.2
   
-  # Location services (temporarily disabled)
-  # geolocator: ^13.0.1
-  # permission_handler: ^12.0.1
-  
   # UI components
   cupertino_icons: ^1.0.6
   
@@ -52,6 +50,6 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
-  
+
   assets:
     - assets/images/

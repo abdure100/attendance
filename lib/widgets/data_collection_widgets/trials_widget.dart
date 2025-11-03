@@ -185,43 +185,43 @@ class _TrialsWidgetState extends State<TrialsWidget> {
           ),
         ),
         
-        // Most Intrusive Prompt Display
-        if (_mostIntrusivePrompt != null) ...[
-          const SizedBox(height: 12),
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.orange[50],
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.orange[200]!),
-            ),
-            child: Row(
-              children: [
-                Icon(
-                  Icons.flag,
-                  color: Colors.orange[700],
-                  size: 20,
-                ),
-                const SizedBox(width: 8),
-                const Text(
-                  'Most Intrusive Prompt: ',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                Text(
-                  _mostIntrusivePrompt!,
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.orange[700],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
+        // Most Intrusive Prompt Display - HIDDEN
+        // if (_mostIntrusivePrompt != null) ...[
+        //   const SizedBox(height: 12),
+        //   Container(
+        //     padding: const EdgeInsets.all(12),
+        //     decoration: BoxDecoration(
+        //       color: Colors.orange[50],
+        //       borderRadius: BorderRadius.circular(8),
+        //       border: Border.all(color: Colors.orange[200]!),
+        //     ),
+        //     child: Row(
+        //       children: [
+        //         Icon(
+        //           Icons.flag,
+        //           color: Colors.orange[700],
+        //           size: 20,
+        //         ),
+        //         const SizedBox(width: 8),
+        //         const Text(
+        //           'Most Intrusive Prompt: ',
+        //           style: TextStyle(
+        //             fontSize: 14,
+        //             fontWeight: FontWeight.w500,
+        //           ),
+        //         ),
+        //         Text(
+        //           _mostIntrusivePrompt!,
+        //           style: TextStyle(
+        //             fontSize: 14,
+        //             fontWeight: FontWeight.bold,
+        //             color: Colors.orange[700],
+        //           ),
+        //         ),
+        //       ],
+        //     ),
+        //   ),
+        // ],
         
         const SizedBox(height: 16),
         

@@ -324,12 +324,12 @@ class _StartVisitPageState extends State<StartVisitPage> {
           onPressed: () => _showLogoutDialog(),
         ),
         actions: [
-          // MCP Test Button
-          IconButton(
-            onPressed: () => Navigator.pushNamed(context, '/mcp-test'),
-            icon: const Icon(Icons.science),
-            tooltip: 'Test MCP API',
-          ),
+          // MCP Test Button - Hidden
+          // IconButton(
+          //   onPressed: () => Navigator.pushNamed(context, '/mcp-test'),
+          //   icon: const Icon(Icons.science),
+          //   tooltip: 'Test MCP API',
+          // ),
           // Behaviors Button
           IconButton(
             onPressed: () => Navigator.pushNamed(context, '/behaviors'),

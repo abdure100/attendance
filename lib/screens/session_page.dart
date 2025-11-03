@@ -31,6 +31,7 @@ class _SessionPageState extends State<SessionPage> {
   bool _isEnding = false;
   bool _isGeneratingNotes = false;
   bool _showNotes = false;
+  bool _isGeneratingMockData = false;
   final TextEditingController _noteController = TextEditingController();
   final Set<String> _savedAssignments = {}; // Track which assignments have been saved
 
@@ -69,10 +70,22 @@ class _SessionPageState extends State<SessionPage> {
     try {
       final fileMakerService = Provider.of<FileMakerService>(context, listen: false);
       
-      // Fetch fresh visit record from FileMaker to get latest assignedto_name
+      // Set end_ts to current time when generating notes
+      await fileMakerService.updateVisitEndTs(widget.visit!.id, DateTime.now());
+      
+      // Fetch fresh visit record from FileMaker to get latest data with all fields
       print('🔄 Fetching fresh visit record from FileMaker...');
       final freshVisit = await fileMakerService.getVisitById(widget.visit!.id);
       final visit = freshVisit ?? widget.visit!;
+      
+      // Fetch raw visit fieldData to get additional fields (Procedure, StaffNPI, time_out, Company)
+      Map<String, dynamic>? visitFieldData;
+      try {
+        final rawVisitResponse = await fileMakerService.getVisitRawData(widget.visit!.id);
+        visitFieldData = rawVisitResponse;
+      } catch (e) {
+        print('⚠️ Could not fetch raw visit data: $e');
+      }
       
       if (freshVisit != null) {
         print('✅ Fetched fresh visit record with assignedto_name: ${freshVisit.staffName}');
@@ -87,21 +100,17 @@ class _SessionPageState extends State<SessionPage> {
       
       // Get program assignments
       final assignments = await fileMakerService.getProgramAssignments(widget.client!.id);
-
-      // Get staff name from assignedto_name - use currentStaffName only if assignedto_name is null/empty
-      final staffName = visit.staffName?.isNotEmpty == true 
-          ? visit.staffName! 
-          : (fileMakerService.currentStaffName ?? 'Provider');
-      final staffTitle = visit.staffTitle?.isNotEmpty == true 
-          ? visit.staffTitle! 
-          : 'BCBA'; // Use staff_title from visit, fallback to BCBA
-      final providerName = staffTitle.isNotEmpty 
-          ? '$staffName, $staffTitle' 
-          : staffName;
-      final npi = 'ATYPICAL'; // TODO: Get NPI from FileMaker when field is available
       
-      print('👤 Provider info from visit: assignedto_name="${visit.staffName}", staff_title="${visit.staffTitle}"');
-      print('👤 Provider info final: name=$staffName, title=$staffTitle, providerName=$providerName');
+      // Extract additional fields from raw visit data
+      final company = visitFieldData?['Company']?.toString() ?? fileMakerService.currentCompanyId;
+      final procedure = visitFieldData?['Procedure']?.toString();
+      final staffNpi = visitFieldData?['StaffNPI']?.toString();
+      final timeOut = visitFieldData?['time_out']?.toString();
+      final modifier1 = visitFieldData?['Modifier1']?.toString();
+      final pos = visitFieldData?['POS']?.toString();
+      final staffRole = visitFieldData?['Staff_Role']?.toString();
+      
+      print('📋 Visit field data: Company=$company, Procedure=$procedure, StaffNPI=$staffNpi, time_out=$timeOut, Modifier1=$modifier1, POS=$pos, Staff_Role=$staffRole');
       
       // Convert to SessionData
       final sessionData = NoteDraftingService.convertSessionRecordsToSessionData(
@@ -109,8 +118,13 @@ class _SessionPageState extends State<SessionPage> {
         client: widget.client!,
         sessionRecords: sessionRecords,
         assignments: assignments,
-        providerName: providerName,
-        npi: npi,
+        company: company,
+        staffNpi: staffNpi,
+        procedure: procedure,
+        timeOut: timeOut,
+        modifier1: modifier1,
+        pos: pos,
+        staffRole: staffRole,
       );
 
       print('🔄 Sending session data to LLM for note generation...');
@@ -638,6 +652,164 @@ class _SessionPageState extends State<SessionPage> {
     return _createPercentCorrectData(session, totalSessions);
   }
 
+  /// Show dialog to generate mock data for all programs
+  Future<void> _showMockDataDialog() async {
+    if (widget.client == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Cannot generate mock data: Missing client information'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    final phaseController = TextEditingController(text: 'baseline');
+    final sessionCountController = TextEditingController(text: '5');
+    
+    final result = await showDialog<Map<String, String>>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.auto_awesome, color: Colors.blue),
+            SizedBox(width: 8),
+            Text('Generate Mock Data'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: phaseController,
+              decoration: const InputDecoration(
+                labelText: 'Phase',
+                hintText: 'baseline, intervention, maintenance, or generalization',
+                helperText: 'Phase for all programs',
+              ),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: sessionCountController,
+              decoration: const InputDecoration(
+                labelText: 'Number of Sessions',
+                hintText: '5',
+                helperText: 'Number of mock sessions to generate per program',
+              ),
+              keyboardType: TextInputType.number,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.of(context).pop({
+                'phase': phaseController.text.trim(),
+                'sessionCount': sessionCountController.text.trim(),
+              });
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.blue,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Generate'),
+          ),
+        ],
+      ),
+    );
+
+    if (result != null) {
+      final phase = result['phase'] ?? 'baseline';
+      final sessionCount = int.tryParse(result['sessionCount'] ?? '5') ?? 5;
+      
+      if (sessionCount <= 0 || sessionCount > 50) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Please enter a valid number of sessions (1-50)'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+
+      await _generateMockDataForAllPrograms(phase, sessionCount);
+    }
+  }
+
+  /// Generate mock data for all programs
+  Future<void> _generateMockDataForAllPrograms(String phase, int sessionCount) async {
+    if (widget.client == null) return;
+
+    setState(() => _isGeneratingMockData = true);
+
+    try {
+      final fileMakerService = Provider.of<FileMakerService>(context, listen: false);
+      
+      // Get all program assignments for this client
+      final assignments = await fileMakerService.getProgramAssignments(widget.client!.id);
+      
+      if (assignments.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('No programs found for this client'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+        return;
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Generating $sessionCount sessions for ${assignments.length} programs...'),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+
+      // Generate mock data for all programs using _generatePhaseData
+      await _generatePhaseData(
+        fileMakerService,
+        widget.client!.id,
+        assignments,
+        phase,
+        sessionCount,
+      );
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '✅ Successfully generated $sessionCount $phase sessions for ${assignments.length} programs',
+            ),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    } catch (e) {
+      print('❌ Error generating mock data: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error generating mock data: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isGeneratingMockData = false);
+      }
+    }
+  }
+
   /// Create mock trial data based on phase
   Map<String, dynamic> _createMockTrialData(String phase, int session, int totalSessions) {
     // Create realistic trial data with proper phase progression
@@ -738,6 +910,49 @@ class _SessionPageState extends State<SessionPage> {
     };
   }
 
+
+  /// Cancel visit when user chooses to lose data
+  Future<void> _cancelVisit() async {
+    if (widget.visit == null) return;
+    
+    setState(() => _isEnding = true);
+    
+    try {
+      final fileMakerService = Provider.of<FileMakerService>(context, listen: false);
+      
+      print('❌ Cancelling visit: ${widget.visit!.id}');
+      await fileMakerService.cancelVisit(widget.visit!.id);
+      
+      // Clear session provider
+      final sessionProvider = Provider.of<SessionProvider>(context, listen: false);
+      sessionProvider.endVisit();
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Session cancelled and data discarded'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+        
+        // Navigate back to start visit page
+        Navigator.pushReplacementNamed(context, '/start-visit');
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error cancelling session: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isEnding = false);
+      }
+    }
+  }
 
   Future<void> _endVisit({bool skipUnsavedDataCheck = false}) async {
     if (_isEnding || widget.visit == null) return;
@@ -910,8 +1125,8 @@ class _SessionPageState extends State<SessionPage> {
         // User cancelled
         return;
       }
-      // User confirmed, proceed with ending (skip duplicate check)
-      await _endVisit(skipUnsavedDataCheck: true);
+      // User confirmed to lose data - cancel the visit
+      await _cancelVisit();
       return;
     }
     
@@ -984,8 +1199,8 @@ class _SessionPageState extends State<SessionPage> {
       );
 
       if (result == true) {
-        // User confirmed, proceed to end session without saving
-        // Continue with ending session
+        // User confirmed, proceed to cancel session (data will be lost)
+        await _cancelVisit();
         return;
       } else {
         // User cancelled, don't end session
@@ -1020,6 +1235,21 @@ class _SessionPageState extends State<SessionPage> {
           onPressed: () => _showEndSessionDialog(),
         ),
         actions: [
+          // Mock Data Generator Button
+          IconButton(
+            icon: _isGeneratingMockData
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                    ),
+                  )
+                : const Icon(Icons.auto_awesome),
+            tooltip: 'Generate Mock Data for All Programs',
+            onPressed: _isGeneratingMockData ? null : _showMockDataDialog,
+          ),
           Text(
             _formatDuration(_elapsed),
             style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),

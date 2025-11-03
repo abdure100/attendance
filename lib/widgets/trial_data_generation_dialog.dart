@@ -160,7 +160,7 @@ class _TrialDataGenerationDialogState extends State<TrialDataGenerationDialog> {
             ),
             const SizedBox(height: 8),
             DropdownButtonFormField<String>(
-              value: _selectedClientId,
+              initialValue: _selectedClientId,
               decoration: const InputDecoration(
                 border: OutlineInputBorder(),
                 hintText: 'Choose a client...',

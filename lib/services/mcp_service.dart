@@ -180,6 +180,11 @@ class MCPService {
         'stream': stream,
       };
 
+      print('📤 MCP Completions Request:');
+      print('   - visitId: ${visitId ?? "null"}');
+      print('   - assignmentId: ${assignmentId ?? "null (not sent)"}');
+      print('   - Request body keys: ${body.keys.toList()}');
+
       final response = await http.post(
         Uri.parse('$baseUrl/mcp/completions'),
         headers: headers,

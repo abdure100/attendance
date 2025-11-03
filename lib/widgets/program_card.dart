@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../models/program_assignment.dart';
 import '../models/behavior_log.dart';
 import '../providers/session_provider.dart';
+import '../services/note_drafting_service.dart';
 import 'data_collection_widgets/trials_widget.dart';
 import 'data_collection_widgets/frequency_widget.dart';
 import 'data_collection_widgets/duration_widget.dart';
@@ -37,6 +38,7 @@ class _ProgramCardState extends State<ProgramCard> {
   Map<String, dynamic> _currentData = {};
   bool _isSaving = false;
   Map<String, dynamic> _originalData = {};
+  bool _isAnalyzing = false;
 
   @override
   void initState() {
@@ -329,6 +331,76 @@ class _ProgramCardState extends State<ProgramCard> {
     }
   }
 
+  Future<void> _analyzeAssignment() async {
+    if (widget.assignment.id == null || widget.assignment.id!.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Cannot analyze: Missing assignment ID'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    setState(() => _isAnalyzing = true);
+
+    try {
+      final analysis = await NoteDraftingService.analyzeAssignment(
+        assignmentId: widget.assignment.id!,
+        visitId: null, // Don't send visitId - only use assignmentId for analysis
+        ragContext: 'Focus on the specific program: ${widget.assignment.name} (${widget.assignment.dataType}). Provide actionable insights.',
+      );
+
+      if (mounted) {
+        await showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: Row(
+              children: [
+                const Icon(Icons.insights, color: Colors.blue),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    widget.assignment.name ?? 'Program Analysis',
+                    style: const TextStyle(fontSize: 18),
+                  ),
+                ),
+              ],
+            ),
+            content: SizedBox(
+              width: double.maxFinite,
+              child: SingleChildScrollView(
+                child: Text(
+                  analysis,
+                  style: const TextStyle(fontSize: 14),
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('Close'),
+              ),
+            ],
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error analyzing assignment: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isAnalyzing = false);
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Consumer<SessionProvider>(
@@ -383,33 +455,56 @@ class _ProgramCardState extends State<ProgramCard> {
                         ],
                       ),
                     ),
-                    if (sessionTotals.isNotEmpty)
-                      Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: Colors.blue[50],
-                          borderRadius: BorderRadius.circular(8),
+                    Row(
+                      children: [
+                        // Analysis button - top right
+                        IconButton(
+                          icon: _isAnalyzing
+                              ? const SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                )
+                              : const Icon(
+                                  Icons.insights,
+                                  color: Colors.blue,
+                                  size: 24,
+                                ),
+                          tooltip: 'Analyze Session Data',
+                          onPressed: _isAnalyzing ? null : _analyzeAssignment,
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(),
                         ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          children: [
-                            Text(
-                              'Session Total',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.grey[600],
-                              ),
+                        const SizedBox(width: 8),
+                        if (sessionTotals.isNotEmpty)
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: Colors.blue[50],
+                              borderRadius: BorderRadius.circular(8),
                             ),
-                            Text(
-                              _formatSessionTotal(sessionTotals),
-                              style: const TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.bold,
-                              ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                Text(
+                                  'Session Total',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey[600],
+                                  ),
+                                ),
+                                Text(
+                                  _formatSessionTotal(sessionTotals),
+                                  style: const TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
                             ),
-                          ],
-                        ),
-                      ),
+                          ),
+                      ],
+                    ),
                   ],
                 ),
                 
@@ -471,7 +566,7 @@ class _ProgramCardState extends State<ProgramCard> {
       case 'duration':
         final phase = totals['phase'] ?? 'baseline';
         final minutes = totals['totalMinutes'] ?? 0;
-        return '${minutes} min ($phase)';
+        return '$minutes min ($phase)';
       
       case 'rate':
         return '${totals['totalCount']} in ${(totals['totalSeconds'] / 60).round()} min (${totals['overallRate']}/min)';

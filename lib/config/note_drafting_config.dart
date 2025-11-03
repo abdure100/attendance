@@ -36,7 +36,7 @@ You are a clinical documentation assistant for a behavioral health / ABA EMR.
   // Get API key (checks multiple sources)
   static String? getApiKey() {
     // First check if apiKey is set
-    if (apiKey != null && apiKey!.isNotEmpty) {
+    if (apiKey.isNotEmpty) {
       return apiKey;
     }
     
@@ -72,8 +72,7 @@ You are a clinical documentation assistant for a behavioral health / ABA EMR.
       'temperature': temperature,
       'maxTokens': maxTokens,
       'hasApiKey': isConfigured,
-      'apiKeySource': apiKey != null ? 'noteDrafting' : 
-                     openaiApiKey != null ? 'openai' : 'none',
+      'apiKeySource': 'noteDrafting',
     };
   }
 }

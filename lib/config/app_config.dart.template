@@ -1,9 +1,9 @@
 class AppConfig {
   // FileMaker Configuration
-  static const String baseUrl = 'YOUR_FILEMAKER_BASE_URL';
-  static const String database = 'YOUR_DATABASE_NAME';
-  static const String username = 'YOUR_USERNAME';
-  static const String password = 'YOUR_PASSWORD';
+  static const String baseUrl = 'db.sphereemr.com';
+  static const String database = 'EIDBI';
+  static const String username = 'fmapi';
+  static const String password = 'Sphere321!';
   
   // App Configuration
   static const String appName = 'DataSheets';

@@ -1,13 +1,13 @@
 import 'dart:convert';
 import 'dart:async';
 import 'package:http/http.dart' as http;
-import 'package:datasheets/models/session_record.dart';
-import 'package:datasheets/models/visit.dart';
-import 'package:datasheets/models/client.dart';
-import 'package:datasheets/models/program_assignment.dart';
-import 'package:datasheets/config/note_drafting_config.dart';
-import 'package:datasheets/services/mcp_service.dart';
-import 'package:datasheets/services/token_service.dart';
+import '../models/session_record.dart';
+import '../models/visit.dart';
+import '../models/client.dart';
+import '../models/program_assignment.dart';
+import '../config/note_drafting_config.dart';
+import 'mcp_service.dart';
+import 'token_service.dart';
 
 /// Service for generating clinical notes using AI
 class NoteDraftingService {
@@ -20,17 +20,38 @@ class NoteDraftingService {
     final system = NoteDraftingConfig.systemPrompt;
 
     final user = '''
-Session Metadata:
-- Provider: ${session.providerName}, NPI/ATYPICAL: ${session.npi}
-- Client: ${session.clientName}, DOB: ${session.dob}
-- Date: ${session.date}, Time: ${session.startTime}–${session.endTime} (${session.durationMinutes} min)
-- Service: ${session.serviceName}, CPT: ${session.cpt}, Modifiers: ${session.modifiers.join(', ')}, POS: ${session.pos}
-- Goals Targeted: ${session.goalsList.join('; ')}
-- Behaviors Observed: ${session.behaviors}
-- Interventions Used: ${session.interventions}
-- Data Summary: ${session.dataSummary}
-- Caregiver Involvement: ${session.caregiver}
-- Plan/Next Steps: ${session.plan}
+Visit Info:
+- Visit ID: ${session.visitId}${session.company != null ? '\n- Company: ${session.company}' : ''}
+
+Provider Info:
+- Provider Name: ${session.providerName}
+- Staff ID: ${session.staffId}
+- Staff Title: ${session.staffTitle}
+- NPI: ${session.npi}${session.staffRole != null ? '\n- Role: ${session.staffRole}' : ''}
+
+Client Info:
+- Client Name: ${session.clientName}
+- Client ID: ${session.clientId}
+- Date of Birth: ${session.dob}
+
+Session Timing:
+- Date: ${session.date}
+- Start Time: ${session.startTime}
+- End Time: ${session.endTime}
+- Duration: ${session.durationMinutes} minutes
+
+Service Information:
+- Service Code: ${session.serviceName}
+- CPT: ${session.cpt}
+- Modifiers: ${session.modifiers.join(', ')}
+- POS: ${session.pos}
+
+Goals Targeted: ${session.goalsList.join('; ')}
+Behaviors Observed: ${session.behaviors}
+Interventions Used: ${session.interventions}
+Data Summary: ${session.dataSummary}
+Caregiver Involvement: ${session.caregiver}
+Plan/Next Steps: ${session.plan}
 
 Context (templates/payer rules/exemplars):
 ${ragContext.isEmpty ? NoteDraftingConfig.defaultRagContext : ragContext}
@@ -51,6 +72,84 @@ Keep it factual, professional, and payer-appropriate. Do not include PHI beyond 
       {'role': 'system', 'content': system},
       {'role': 'user', 'content': user},
     ];
+  }
+
+  /// Analyze assignment data for a specific program
+  /// Uses MCP API to provide summary, analysis, and recommendations
+  static Future<String> analyzeAssignment({
+    required String assignmentId,
+    String? visitId,
+    String ragContext = '',
+    bool useMCP = true,
+  }) async {
+    try {
+      if (useMCP) {
+        final sanctumToken = await TokenService.getSanctumToken();
+        if (sanctumToken != null && sanctumToken.isNotEmpty) {
+          try {
+            print('🔄 Using MCP API for assignment analysis...');
+            final mcpService = MCPService(token: sanctumToken);
+            
+            // Build analysis prompt
+            final messages = [
+              {
+                'role': 'system',
+                'content': '''You are a clinical data analyst assistant. Your role is to analyze session data for specific behavioral intervention programs and provide:
+- Summary: Brief overview of the data collected
+- Analysis: Key patterns, trends, and observations
+- Recommendations: Actionable next steps for program modification or continuation
+
+Be specific, data-driven, and clinically relevant. Focus on measurable outcomes and evidence-based recommendations.''',
+              },
+              {
+                'role': 'user',
+                'content': '''Analyze the session data for assignment ID: $assignmentId
+
+${ragContext.isEmpty ? 'Provide a comprehensive analysis including summary, key observations, and clinical recommendations based on the collected session data.' : ragContext}
+
+Please structure your response with:
+1. Summary: Brief overview of data collected
+2. Analysis: Key patterns and observations
+3. Recommendations: Suggested next steps''',
+              },
+            ];
+            
+            // Use MCP completions endpoint with assignmentId only (do not send visitId)
+            final response = await mcpService.completions(
+              messages: messages,
+              visitId: null, // Explicitly null - only assignmentId is used for analysis
+              assignmentId: assignmentId,
+              model: NoteDraftingConfig.model,
+              temperature: NoteDraftingConfig.temperature,
+              maxTokens: 800, // Allow more tokens for detailed analysis
+              stream: false,
+            );
+            
+            if (response['success'] == true && response['response'] != null) {
+              final completionData = response['response'];
+              if (completionData['choices'] != null && completionData['choices'].isNotEmpty) {
+                final content = completionData['choices'][0]['message']['content'];
+                if (content != null) {
+                  print('✅ Assignment analysis generated successfully via MCP API');
+                  return content;
+                }
+              }
+            }
+            print('⚠️ MCP API response format unexpected');
+            throw Exception('Unexpected response format from MCP API');
+          } catch (e) {
+            print('❌ MCP API failed: $e');
+            rethrow;
+          }
+        } else {
+          throw Exception('No Sanctum token available for MCP API');
+        }
+      }
+      throw Exception('MCP API not available');
+    } catch (e) {
+      print('❌ Error analyzing assignment: $e');
+      rethrow;
+    }
   }
 
   /// Generate note draft from session data
@@ -76,10 +175,11 @@ Keep it factual, professional, and payer-appropriate. Do not include PHI beyond 
             final messages = buildNoteDraftMessages(session: session, ragContext: ragContext);
             
             // Use MCP completions endpoint with context
+            // Only send visitId - do not send assignmentId or clientId
             final response = await mcpService.completions(
               messages: messages,
               visitId: visitId,
-              assignmentId: assignmentId,
+              assignmentId: null, // Explicitly null - only visitId is used for note generation
               model: NoteDraftingConfig.model,
               temperature: NoteDraftingConfig.temperature,
               maxTokens: NoteDraftingConfig.maxTokens,
@@ -205,8 +305,15 @@ Keep it factual, professional, and payer-appropriate. Do not include PHI beyond 
     required Client client,
     required List<SessionRecord> sessionRecords,
     required List<ProgramAssignment> assignments,
-    required String providerName,
-    required String npi,
+    String? providerName,
+    String? npi,
+    String? company,
+    String? staffNpi,
+    String? procedure,
+    String? timeOut,
+    String? modifier1,
+    String? pos,
+    String? staffRole,
     String? apiKey,
   }) {
     // Extract unique goals from assignments that have session records
@@ -249,7 +356,47 @@ Keep it factual, professional, and payer-appropriate. Do not include PHI beyond 
     // Generate plan/next steps
     final plan = _generatePlanFromRecords(sessionRecords, assignments);
     
-    // Format date as MM/DD/YYYY
+    // Visit Info
+    final visitId = visit.id;
+    final visitCompany = company;
+    
+    // Provider Info - use visit fields first, fallback to provided values
+    final providerNameFromVisit = visit.staffName?.isNotEmpty == true 
+        ? visit.staffName! 
+        : (providerName ?? 'Provider');
+    final staffId = visit.staffId;
+    final staffTitleFromVisit = visit.staffTitle?.isNotEmpty == true 
+        ? visit.staffTitle! 
+        : 'Therapist';
+    final finalProviderName = staffTitleFromVisit.isNotEmpty
+        ? '$providerNameFromVisit, $staffTitleFromVisit'
+        : providerNameFromVisit;
+    final finalNpi = staffNpi ?? npi ?? 'ATYPICAL';
+    final finalStaffRole = staffRole;
+    
+    // Client Info
+    final clientNameFromVisit = visit.clientName?.isNotEmpty == true 
+        ? visit.clientName! 
+        : client.name;
+    final clientId = visit.clientId;
+    
+    // Format DOB as MM/DD/YYYY if provided
+    String formattedDob = 'Not provided';
+    if (client.dateOfBirth != null && client.dateOfBirth!.isNotEmpty) {
+      if (client.dateOfBirth!.contains('/')) {
+        formattedDob = client.dateOfBirth!;
+      } else {
+        try {
+          final dateTime = DateTime.parse(client.dateOfBirth!);
+          formattedDob = _formatDate(dateTime);
+        } catch (e) {
+          formattedDob = client.dateOfBirth!;
+        }
+      }
+    }
+    
+    // Session Timing
+    // Date (MM/DD/YYYY from visit.Appointment_date or visit.startTs)
     String formattedDate;
     if (visit.appointmentDate != null && visit.appointmentDate!.isNotEmpty) {
       // If appointmentDate is already in MM/DD/YYYY format, use it
@@ -268,34 +415,57 @@ Keep it factual, professional, and payer-appropriate. Do not include PHI beyond 
       formattedDate = _formatDate(visit.startTs);
     }
     
-    // Format DOB as MM/DD/YYYY if provided
-    String formattedDob = 'Not provided';
-    if (client.dateOfBirth != null && client.dateOfBirth!.isNotEmpty) {
-      if (client.dateOfBirth!.contains('/')) {
-        formattedDob = client.dateOfBirth!;
-      } else {
-        try {
-          final dateTime = DateTime.parse(client.dateOfBirth!);
-          formattedDob = _formatDate(dateTime);
-        } catch (e) {
-          formattedDob = client.dateOfBirth!;
-        }
-      }
+    // Start time (from visit.time_in or formatted from visit.startTs)
+    final startTime = visit.timeIn?.isNotEmpty == true 
+        ? visit.timeIn! 
+        : _formatTime(visit.startTs);
+    
+    // End time (from visit.time_out or formatted from visit.endTs)
+    String endTime;
+    if (timeOut != null && timeOut.isNotEmpty) {
+      endTime = timeOut;
+    } else if (visit.endTs != null) {
+      endTime = _formatTime(visit.endTs!);
+    } else {
+      endTime = 'Not provided';
     }
     
+    final durationMinutes = _calculateDurationMinutes(visit);
+    
+    // Service Information
+    // Service code (from visit.Procedure_input)
+    final serviceNameFromVisit = visit.serviceCode;
+    
+    // CPT: "97153" (from visit.Procedure, fallback to default)
+    final cptCode = procedure ?? '97153';
+    
+    // Modifiers: from visit.Modifier1, fallback to "UC"
+    final modifiersList = modifier1 != null && modifier1.isNotEmpty 
+        ? [modifier1] 
+        : ['UC'];
+    
+    // POS: from visit.POS, fallback to "11"
+    final posCode = pos ?? '11';
+    
     return SessionData(
-      providerName: providerName,
-      npi: npi,
-      clientName: client.name,
+      visitId: visitId,
+      company: visitCompany,
+      providerName: finalProviderName,
+      staffId: staffId,
+      staffTitle: staffTitleFromVisit,
+      npi: finalNpi,
+      staffRole: finalStaffRole,
+      clientName: clientNameFromVisit,
+      clientId: clientId,
       dob: formattedDob,
       date: formattedDate,
-      startTime: visit.timeIn?.isNotEmpty == true ? visit.timeIn! : _formatTime(visit.startTs),
-      endTime: visit.endTs != null ? _formatTime(visit.endTs!) : 'Not provided',
-      durationMinutes: _calculateDurationMinutes(visit),
-      serviceName: visit.serviceCode,
-      cpt: '97153', // Default CPT code
-      modifiers: ['UC'], // Default modifier
-      pos: '11', // Office/Outpatient
+      startTime: startTime,
+      endTime: endTime,
+      durationMinutes: durationMinutes,
+      serviceName: serviceNameFromVisit,
+      cpt: cptCode,
+      modifiers: modifiersList,
+      pos: posCode,
       goalsList: goalsList,
       behaviors: behaviors,
       interventions: interventions,
@@ -519,18 +689,35 @@ Keep it factual, professional, and payer-appropriate. Do not include PHI beyond 
 
 /// Minimal container for session fields
 class SessionData {
+  // Visit Info
+  final String visitId;
+  final String? company;
+  
+  // Provider Info
   final String providerName;
+  final String staffId;
+  final String staffTitle;
   final String npi;                 // "ATYPICAL" or NPI number
+  final String? staffRole;          // Staff role from visit.Staff_Role
+  
+  // Client Info
   final String clientName;          // Use initials if needed for PHI policy
+  final String clientId;
   final String dob;                 // e.g., 2015-04-12
+  
+  // Session Timing
   final String date;                // e.g., 2025-10-18
   final String startTime;           // e.g., 14:00
   final String endTime;             // e.g., 15:00
   final int durationMinutes;        // e.g., 60
+  
+  // Service Information
   final String serviceName;         // e.g., "Adaptive Behavior Treatment"
   final String cpt;                 // e.g., "97153"
   final List<String> modifiers;     // e.g., ["UC"]
   final String pos;                 // Place of Service, e.g., "11"
+  
+  // Session Data
   final List<String> goalsList;     // e.g., ["manding", "task compliance"]
   final String behaviors;           // narrative
   final String interventions;       // narrative
@@ -539,9 +726,15 @@ class SessionData {
   final String plan;                // e.g., "Increase task complexity next session"
 
   SessionData({
+    required this.visitId,
+    this.company,
     required this.providerName,
+    required this.staffId,
+    required this.staffTitle,
     required this.npi,
+    this.staffRole,
     required this.clientName,
+    required this.clientId,
     required this.dob,
     required this.date,
     required this.startTime,

@@ -76,6 +76,11 @@ class AuthService {
           if (data['user'] != null) {
             final user = data['user'] as Map<String, dynamic>;
             print('👤 User: ${user['name'] ?? 'N/A'} (${user['email'] ?? 'N/A'})');
+            if (user['company_id'] != null) {
+              print('🏢 Company ID from MCP API: ${user['company_id']}');
+            } else {
+              print('⚠️ Company ID missing from MCP API response');
+            }
           }
           
           // Log token metadata

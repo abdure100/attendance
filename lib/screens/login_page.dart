@@ -247,15 +247,16 @@ class _LoginPageState extends State<LoginPage> {
                                 ),
                         ),
                       ),
-                      const SizedBox(height: 8),
-                      TextButton.icon(
-                        onPressed: () => Navigator.pushNamed(context, '/mcp-test'),
-                        icon: const Icon(Icons.science, size: 18),
-                        label: const Text('MCP API Test'),
-                        style: TextButton.styleFrom(
-                          foregroundColor: Colors.grey[600],
-                        ),
-                      ),
+                      // MCP Test button hidden
+                      // const SizedBox(height: 8),
+                      // TextButton.icon(
+                      //   onPressed: () => Navigator.pushNamed(context, '/mcp-test'),
+                      //   icon: const Icon(Icons.science, size: 18),
+                      //   label: const Text('MCP API Test'),
+                      //   style: TextButton.styleFrom(
+                      //     foregroundColor: Colors.grey[600],
+                      //   ),
+                      // ),
                       const SizedBox(height: 16),
                     ],
                   ),

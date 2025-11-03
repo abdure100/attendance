@@ -443,6 +443,11 @@ class FileMakerService extends ChangeNotifier {
     visitData['Appointment_date'] = '${visit.startTs.month.toString().padLeft(2, '0')}/${visit.startTs.day.toString().padLeft(2, '0')}/${visit.startTs.year}';
     visitData['start_ts'] = visit.startTs.toIso8601String().split('.')[0];
     
+    // Add company ID if available
+    if (_currentCompanyId != null) {
+      visitData['Company'] = _currentCompanyId;
+    }
+    
     _logHeaders();
     
     final requestBody = json.encode({
@@ -477,6 +482,11 @@ class FileMakerService extends ChangeNotifier {
     final visitData = visit.toJson();
     visitData['Appointment_date'] = '${visit.startTs.month.toString().padLeft(2, '0')}/${visit.startTs.day.toString().padLeft(2, '0')}/${visit.startTs.year}';
     visitData['start_ts'] = visit.startTs.toIso8601String().split('.')[0];
+    
+    // Add company ID if available
+    if (_currentCompanyId != null) {
+      visitData['Company'] = _currentCompanyId;
+    }
     
     visitData['update_flagx'] = 5; // Trigger processing in FileMaker
     
@@ -601,7 +611,7 @@ class FileMakerService extends ChangeNotifier {
             String finalNotes;
             if (existingNotes.trim().isNotEmpty) {
               // Template exists - append generated notes
-              finalNotes = existingNotes.trim() + '\n\n' + notes.trim();
+              finalNotes = '${existingNotes.trim()}\n\n${notes.trim()}';
             } else {
               // No template - use generated notes as-is
               finalNotes = notes.trim();
@@ -790,6 +800,149 @@ class FileMakerService extends ChangeNotifier {
     }
   }
 
+  /// Cancel a visit - sets statusInput to "Cancelled" and deleted_at to current timestamp
+  Future<void> cancelVisit(String visitId) async {
+    await _ensureAuthenticated();
+    
+    try {
+      // First, find the recordId using the PrimaryKey
+      final findResponse = await _dio.post(
+        '/databases/$database/layouts/api_appointments/_find',
+        data: {
+          'query': [
+            {'PrimaryKey': '==$visitId'}
+          ]
+        },
+        options: Options(
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer $_token',
+            'Accept': 'application/json',
+          },
+        ),
+      );
+      
+      if (findResponse.statusCode != 200) {
+        throw Exception('Failed to find visit record: ${findResponse.statusCode}');
+      }
+      
+      final findData = findResponse.data as Map<String, dynamic>;
+      if (findData['response']['data'] == null || 
+          (findData['response']['data'] as List).isEmpty) {
+        throw Exception('Visit record not found');
+      }
+      
+      final recordData = (findData['response']['data'] as List).first;
+      final recordId = recordData['recordId'];
+      
+      // Set statusInput to "Cancelled", deleted_at to current timestamp, and update_flagx = 3
+      final now = DateTime.now();
+      final updateData = {
+        'statusInput': 'Cancelled',
+        'deleted_at': now.toIso8601String().split('.')[0],
+        'update_flagx': 3,
+      };
+      
+      print('❌ Cancelling visit: $visitId');
+      print('📊 Update data: ${jsonEncode(updateData)}');
+      
+      final response = await _dio.patch(
+        '/databases/$database/layouts/api_appointments/records/$recordId',
+        data: {
+          'fieldData': updateData,
+        },
+        options: Options(
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer $_token',
+            'Accept': 'application/json',
+          },
+        ),
+      );
+
+      if (response.statusCode == 200) {
+        print('✅ Visit cancelled successfully: $visitId');
+      } else {
+        throw Exception('Failed to cancel visit: ${response.statusCode}');
+      }
+    } catch (e) {
+      if (e is DioException) {
+        print('❌ DioException when cancelling visit: ${e.message}');
+      }
+      rethrow;
+    }
+  }
+
+  /// Update visit end_ts without closing the visit
+  Future<void> updateVisitEndTs(String visitId, DateTime endTs) async {
+    await _ensureAuthenticated();
+    
+    try {
+      // First, find the recordId using the PrimaryKey
+      final findResponse = await _dio.post(
+        '/databases/$database/layouts/api_appointments/_find',
+        data: {
+          'query': [
+            {'PrimaryKey': '==$visitId'}
+          ]
+        },
+        options: Options(
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer $_token',
+            'Accept': 'application/json',
+          },
+        ),
+      );
+      
+      if (findResponse.statusCode != 200) {
+        throw Exception('Failed to find visit record: ${findResponse.statusCode}');
+      }
+      
+      final findData = findResponse.data as Map<String, dynamic>;
+      if (findData['response']['data'] == null || 
+          (findData['response']['data'] as List).isEmpty) {
+        throw Exception('Visit record not found');
+      }
+      
+      final recordData = (findData['response']['data'] as List).first;
+      final recordId = recordData['recordId'];
+      
+      // Update only end_ts
+      final updateData = {
+        'end_ts': endTs.toIso8601String().split('.')[0],
+      };
+      
+      print('⏰ Updating visit end_ts: $visitId');
+      print('📊 Update data: ${jsonEncode(updateData)}');
+      
+      final response = await _dio.patch(
+        '/databases/$database/layouts/api_appointments/records/$recordId',
+        data: {
+          'fieldData': updateData,
+        },
+        options: Options(
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer $_token',
+            'Accept': 'application/json',
+          },
+        ),
+      );
+
+      if (response.statusCode == 200) {
+        print('✅ Visit end_ts updated successfully: $visitId');
+      } else {
+        throw Exception('Failed to update visit end_ts: ${response.statusCode}');
+      }
+    } catch (e) {
+      if (e is DioException) {
+        print('❌ DioException when updating visit end_ts: ${e.message}');
+      }
+      rethrow;
+    }
+  }
+
   // Program Assignment operations
   Future<List<ProgramAssignment>> getProgramAssignments(String clientId, {String? ltgId}) async {
     await _ensureAuthenticated();
@@ -930,7 +1083,7 @@ class FileMakerService extends ChangeNotifier {
     print('🔍 Updating session record with data: ${jsonEncode(sessionData)}');
     
     final updateResponse = await _dio.patch(
-      '/databases/$database/layouts/api_sessiondata/records/${record.id}',
+      '/databases/$database/layouts/dapi-api_sessiondata/records/${record.id}',
       data: sessionData,
       options: Options(
         headers: {
@@ -959,7 +1112,7 @@ class FileMakerService extends ChangeNotifier {
       // Search by visitId only (since assignmentId field might not be searchable)
       // Then filter by assignmentId in code
       final response = await _dio.post(
-        '/databases/$database/layouts/api_sessiondata/_find',
+        '/databases/$database/layouts/dapi-api_sessiondata/_find',
         data: {
           'query': [
             {
@@ -1072,7 +1225,7 @@ class FileMakerService extends ChangeNotifier {
     
     try {
       final createResponse = await _dio.post(
-        '/databases/$database/layouts/api_sessiondata/records',
+        '/databases/$database/layouts/dapi-api_sessiondata/records',
         data: sessionData,
         options: Options(
           headers: {
@@ -1093,7 +1246,7 @@ class FileMakerService extends ChangeNotifier {
         print('🔍 Verifying saved assignmentId by fetching record...');
         try {
           final verifyResponse = await _dio.get(
-            '/databases/$database/layouts/api_sessiondata/records/$recordId',
+            '/databases/$database/layouts/dapi-api_sessiondata/records/$recordId',
             options: Options(
               headers: {
                 'Authorization': 'Bearer $_token',
@@ -1194,7 +1347,7 @@ class FileMakerService extends ChangeNotifier {
     
     try {
       final updateResponse = await _dio.patch(
-        '/databases/$database/layouts/api_sessiondata/records/$recordId',
+        '/databases/$database/layouts/dapi-api_sessiondata/records/$recordId',
         data: sessionData,
         options: Options(
           headers: {
@@ -1232,7 +1385,7 @@ class FileMakerService extends ChangeNotifier {
       print('🔍 Fetching session records for visit: $visitId');
       
       final response = await _dio.post(
-        '/databases/$database/layouts/api_sessiondata/_find',
+        '/databases/$database/layouts/dapi-api_sessiondata/_find',
         data: {
           'query': [
             {
@@ -1455,7 +1608,7 @@ class FileMakerService extends ChangeNotifier {
       
       
       final response = await _dio.post(
-        '/databases/$database/layouts/api_sessiondata/records',
+        '/databases/$database/layouts/dapi-api_sessiondata/records',
         data: behaviorLogData,
         options: Options(
           headers: {
@@ -1488,7 +1641,7 @@ class FileMakerService extends ChangeNotifier {
 
     try {
       final response = await _dio.patch(
-        '/databases/$database/layouts/api_sessiondata/records/${log.id}',
+        '/databases/$database/layouts/dapi-api_sessiondata/records/${log.id}',
         data: {
           'fieldData': log.toJson(),
         },
@@ -1761,6 +1914,45 @@ class FileMakerService extends ChangeNotifier {
     }
   }
 
+  /// Get raw visit fieldData from FileMaker (for accessing fields not in Visit model)
+  Future<Map<String, dynamic>?> getVisitRawData(String visitId) async {
+    await _ensureAuthenticated();
+    
+    try {
+      final response = await _dio.post(
+        '/databases/$database/layouts/api_appointments/_find',
+        data: {
+          'query': [
+            {'PrimaryKey': '==$visitId'}
+          ],
+          'limit': 1
+        },
+        options: Options(
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer $_token',
+            'Accept': 'application/json',
+          },
+        ),
+      );
+
+      if (response.statusCode == 200) {
+        final data = response.data as Map<String, dynamic>;
+        final records = data['response']['data'] as List<dynamic>? ?? [];
+        
+        if (records.isNotEmpty) {
+          final record = records.first;
+          return record['fieldData'] as Map<String, dynamic>?;
+        }
+      }
+      
+      return null;
+    } catch (e) {
+      print('❌ Error fetching raw visit data: $e');
+      return null;
+    }
+  }
+
   /// Get a visit by ID from FileMaker
   Future<Visit?> getVisitById(String visitId) async {
     await _ensureAuthenticated();
@@ -1940,18 +2132,26 @@ class FileMakerService extends ChangeNotifier {
     
     try {
       final response = await _dio.post(
-        '/databases/EIDBI/layouts/api_sessiondata/_find',
+        '/databases/$database/layouts/dapi-api_sessiondata/_find',
         data: {
           'query': [
             {'visitId': '==$visitId'}
           ],
-          'limit': 100,
+          'limit': 1000,
           'sort': [
-            {'fieldName': 'createdAt_ts', 'sortOrder': 'descend'}
+            {'fieldName': 'startedAt_ts', 'sortOrder': 'descend'}
           ]
         },
+        options: Options(
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer $_token',
+            'Accept': 'application/json',
+          },
+        ),
       );
       
+      print('🔍 Behavior logs response status: ${response.statusCode}');
       
       if (response.statusCode == 200) {
         final data = response.data['response']['data'] as List<dynamic>? ?? [];
@@ -1961,19 +2161,72 @@ class FileMakerService extends ChangeNotifier {
           try {
             final item = data[i];
             final fieldData = item['fieldData'] as Map<String, dynamic>;
-            final log = BehaviorLog.fromJson(fieldData);
-            logs.add(log);
+            
+            // Check if this is a behavior log by checking payload_json
+            final payloadJson = fieldData['payload_json'] as String?;
+            if (payloadJson != null && payloadJson.isNotEmpty) {
+              try {
+                final payload = jsonDecode(payloadJson) as Map<String, dynamic>;
+                if (payload['type'] == 'behavior_log') {
+                  // Extract behavior log data from payload and create BehaviorLog
+                  final behaviorId = payload['behaviorId']?.toString() ?? '';
+                  if (behaviorId.isNotEmpty) {
+                    final log = BehaviorLog(
+                      id: item['recordId']?.toString() ?? '',
+                      visitId: fieldData['visitId']?.toString() ?? '',
+                      clientId: fieldData['clientId']?.toString() ?? '',
+                      behaviorId: behaviorId,
+                      assignmentId: fieldData['assignmentId']?.toString(),
+                      createdAt: fieldData['startedAt_ts'] != null 
+                          ? DateTime.parse(fieldData['startedAt_ts'])
+                          : DateTime.now(),
+                      updatedAt: fieldData['updatedAt_ts'] != null 
+                          ? DateTime.parse(fieldData['updatedAt_ts'])
+                          : DateTime.now(),
+                      count: payload['count'] as int?,
+                      notes: payload['notes']?.toString(),
+                      antecedent: payload['antecedent']?.toString(),
+                      behaviorDesc: payload['behaviorDesc']?.toString(),
+                      consequence: payload['consequence']?.toString(),
+                      setting: payload['setting']?.toString(),
+                      perceivedFunction: payload['perceivedFunction']?.toString(),
+                      severity: payload['severity'] as int?,
+                      injury: payload['injury']?.toString().toLowerCase() == 'true',
+                      restraintUsed: payload['restraintUsed']?.toString().toLowerCase() == 'true',
+                      collector: payload['collector']?.toString(),
+                      startTs: payload['startTs'] != null 
+                          ? DateTime.parse(payload['startTs'])
+                          : null,
+                      endTs: payload['endTs'] != null 
+                          ? DateTime.parse(payload['endTs'])
+                          : null,
+                      durationSec: payload['durationSec'] as int?,
+                      ratePerMin: payload['ratePerMin'] != null 
+                          ? (payload['ratePerMin'] as num).toDouble()
+                          : null,
+                    );
+                    logs.add(log);
+                  }
+                }
+              } catch (e) {
+                print('⚠️ Error parsing payload_json for record ${item['recordId']}: $e');
+                continue;
+              }
+            }
           } catch (e) {
-            // Continue processing other logs instead of failing completely
+            print('⚠️ Error processing behavior log record: $e');
             continue;
           }
         }
         
+        print('✅ Fetched ${logs.length} behavior logs for visit: $visitId');
         return logs;
       } else {
+        print('❌ Failed to load behavior logs: ${response.statusCode}');
         throw Exception('Failed to load behavior logs: ${response.statusCode}');
       }
     } catch (e) {
+      print('❌ Error fetching behavior logs for visit: $e');
       rethrow;
     }
   }
@@ -1985,7 +2238,7 @@ class FileMakerService extends ChangeNotifier {
     try {
       // First, find all behavior logs for this visit
       final findResponse = await _dio.post(
-        '/databases/EIDBI/layouts/api_sessiondata/_find',
+        '/databases/EIDBI/layouts/dapi-api_sessiondata/_find',
         data: {
           'query': [
             {'visitId': '==$visitId'}
@@ -2001,7 +2254,7 @@ class FileMakerService extends ChangeNotifier {
         for (final item in data) {
           final recordId = item['recordId'];
           if (recordId != null) {
-            await _dio.delete('/databases/EIDBI/layouts/api_sessiondata/records/$recordId');
+            await _dio.delete('/databases/EIDBI/layouts/dapi-api_sessiondata/records/$recordId');
           }
         }
         
@@ -2047,7 +2300,7 @@ class FileMakerService extends ChangeNotifier {
     
     try {
       final response = await _dio.post(
-        '/databases/EIDBI/layouts/api_sessiondata/records',
+        '/databases/EIDBI/layouts/dapi-api_sessiondata/records',
         data: {
           'fieldData': sessionData,
         },

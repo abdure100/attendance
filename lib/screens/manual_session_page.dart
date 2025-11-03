@@ -225,10 +225,22 @@ class _ManualSessionPageState extends State<ManualSessionPage> {
     try {
       final fileMakerService = Provider.of<FileMakerService>(context, listen: false);
       
-      // Fetch fresh visit record from FileMaker to get latest assignedto_name
+      // Set end_ts to current time when generating notes
+      await fileMakerService.updateVisitEndTs(_createdVisit!.id, DateTime.now());
+      
+      // Fetch fresh visit record from FileMaker to get latest data with all fields
       print('🔄 Fetching fresh visit record from FileMaker...');
       final freshVisit = await fileMakerService.getVisitById(_createdVisit!.id);
       final visit = freshVisit ?? _createdVisit!;
+      
+      // Fetch raw visit fieldData to get additional fields (Procedure, StaffNPI, time_out, Company)
+      Map<String, dynamic>? visitFieldData;
+      try {
+        final rawVisitResponse = await fileMakerService.getVisitRawData(_createdVisit!.id);
+        visitFieldData = rawVisitResponse;
+      } catch (e) {
+        print('⚠️ Could not fetch raw visit data: $e');
+      }
       
       if (freshVisit != null) {
         print('✅ Fetched fresh visit record with assignedto_name: ${freshVisit.staffName}');
@@ -243,21 +255,17 @@ class _ManualSessionPageState extends State<ManualSessionPage> {
       
       // Get program assignments (already loaded)
       final assignments = _assignments;
-
-      // Get staff name from assignedto_name - use currentStaffName only if assignedto_name is null/empty
-      final staffName = visit.staffName?.isNotEmpty == true 
-          ? visit.staffName! 
-          : (fileMakerService.currentStaffName ?? 'Provider');
-      final staffTitle = visit.staffTitle?.isNotEmpty == true 
-          ? visit.staffTitle! 
-          : 'BCBA'; // Use staff_title from visit, fallback to BCBA
-      final providerName = staffTitle.isNotEmpty 
-          ? '$staffName, $staffTitle' 
-          : staffName;
-      final npi = 'ATYPICAL'; // TODO: Get NPI from FileMaker when field is available
       
-      print('👤 Provider info from visit: assignedto_name="${visit.staffName}", staff_title="${visit.staffTitle}"');
-      print('👤 Provider info final: name=$staffName, title=$staffTitle, providerName=$providerName');
+      // Extract additional fields from raw visit data
+      final company = visitFieldData?['Company']?.toString() ?? fileMakerService.currentCompanyId;
+      final procedure = visitFieldData?['Procedure']?.toString();
+      final staffNpi = visitFieldData?['StaffNPI']?.toString();
+      final timeOut = visitFieldData?['time_out']?.toString();
+      final modifier1 = visitFieldData?['Modifier1']?.toString();
+      final pos = visitFieldData?['POS']?.toString();
+      final staffRole = visitFieldData?['Staff_Role']?.toString();
+      
+      print('📋 Visit field data: Company=$company, Procedure=$procedure, StaffNPI=$staffNpi, time_out=$timeOut, Modifier1=$modifier1, POS=$pos, Staff_Role=$staffRole');
       
       // Convert to SessionData
       final sessionData = NoteDraftingService.convertSessionRecordsToSessionData(
@@ -265,8 +273,13 @@ class _ManualSessionPageState extends State<ManualSessionPage> {
         client: _client,
         sessionRecords: sessionRecords,
         assignments: assignments,
-        providerName: providerName,
-        npi: npi,
+        company: company,
+        staffNpi: staffNpi,
+        procedure: procedure,
+        timeOut: timeOut,
+        modifier1: modifier1,
+        pos: pos,
+        staffRole: staffRole,
       );
 
       print('🔄 Sending session data to LLM for note generation...');
