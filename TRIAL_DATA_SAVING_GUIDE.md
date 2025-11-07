@@ -50,8 +50,8 @@ This guide explains how to save trial data to FileMaker using the `TrialDataServ
 
 ### **1. Initialize the Service**
 ```dart
-import 'package:datasheets/services/filemaker_service.dart';
-import 'package:datasheets/services/trial_data_service.dart';
+import 'package:attendance/services/filemaker_service.dart';
+import 'package:attendance/services/trial_data_service.dart';
 
 final fileMakerService = FileMakerService();
 final trialDataService = TrialDataService(fileMakerService);

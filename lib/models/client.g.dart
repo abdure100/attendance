@@ -14,6 +14,9 @@ Client _$ClientFromJson(Map<String, dynamic> json) => Client(
       email: json['Email'] as String?,
       agencyId: json['Company'] as String?,
       dateOfBirth: json['dob'] as String?,
+      caregiverPhone: json['caregiverPhone'] as String?,
+      homeLatLng: json['homeLatLng'] as String?,
+      homeAddress: json['homeAddress'] as String?,
     );
 
 Map<String, dynamic> _$ClientToJson(Client instance) => <String, dynamic>{
@@ -24,4 +27,7 @@ Map<String, dynamic> _$ClientToJson(Client instance) => <String, dynamic>{
       'Email': instance.email,
       'Company': instance.agencyId,
       'dob': instance.dateOfBirth,
+      'caregiverPhone': instance.caregiverPhone,
+      'homeLatLng': instance.homeLatLng,
+      'homeAddress': instance.homeAddress,
     };

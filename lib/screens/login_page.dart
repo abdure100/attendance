@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
 import '../services/filemaker_service.dart';
 import '../services/auth_service.dart';
+import '../utils/debug_logger.dart';
+import '../models/staff.dart';
+import 'driver_home_page.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -21,11 +23,9 @@ class _LoginPageState extends State<LoginPage> {
   @override
   void initState() {
     super.initState();
-    // Prefill test user credentials for development/testing only
-    if (kDebugMode) {
-      _usernameController.text = 'nafisa@test.com';
-      _passwordController.text = 'Welcome123\$';
-    }
+    // Prefill default login credentials
+    _usernameController.text = 'info@bilterms.com';
+    _passwordController.text = 'Welcome123\$';
   }
 
   @override
@@ -71,53 +71,101 @@ class _LoginPageState extends State<LoginPage> {
       }
       
       // Step 3: Exchange FileMaker token for Sanctum token (no re-authentication needed)
-      print('🔍 LOGIN DEBUG: Starting Step 3 - Token Exchange');
+      DebugLogger.log('🔍 LOGIN DEBUG: Starting Step 3 - Token Exchange');
       try {
         // Get the FileMaker token that was just obtained
         final fileMakerToken = fileMakerService.token;
-        print('🔍 LOGIN DEBUG: FileMaker token retrieved');
-        print('🔍 LOGIN DEBUG: Token is null: ${fileMakerToken == null}');
-        print('🔍 LOGIN DEBUG: Token isEmpty: ${fileMakerToken?.isEmpty ?? true}');
-        if (fileMakerToken != null) {
-          print('🔍 LOGIN DEBUG: Token length: ${fileMakerToken.length}');
-          print('🔍 LOGIN DEBUG: Token preview: ${fileMakerToken.substring(0, fileMakerToken.length > 20 ? 20 : fileMakerToken.length)}...');
-        }
+        DebugLogger.log('🔍 LOGIN DEBUG: FileMaker token retrieved');
+        DebugLogger.log('🔍 LOGIN DEBUG: Token is null: ${fileMakerToken == null}');
         
         if (fileMakerToken != null && fileMakerToken.isNotEmpty) {
-          print('🔐 Exchanging FileMaker token for Sanctum token...');
-          print('🔍 LOGIN DEBUG: Calling AuthService.exchangeFileMakerToken');
+          DebugLogger.info('🔐 Exchanging FileMaker token for Sanctum token...');
           final sanctumToken = await AuthService.exchangeFileMakerToken(
             filemakerToken: fileMakerToken,
             email: email,
             database: 'EIDBI',
           );
           
-          print('🔍 LOGIN DEBUG: Exchange completed, sanctumToken is null: ${sanctumToken == null}');
-          
           if (sanctumToken != null) {
-            print('✅ Sanctum token obtained via FileMaker token exchange');
-            print('🔍 LOGIN DEBUG: Sanctum token length: ${sanctumToken.length}');
+            DebugLogger.success('Sanctum token obtained via FileMaker token exchange');
           } else {
-            print('⚠️ Sanctum token not received, but continuing with FileMaker auth');
+            DebugLogger.warn('Sanctum token not received, but continuing with FileMaker auth');
             // Continue anyway - MCP features will fall back to direct API
           }
         } else {
-          print('⚠️ No FileMaker token available for exchange');
-          print('🔍 LOGIN DEBUG: Token was null or empty, cannot exchange');
+          DebugLogger.warn('No FileMaker token available for exchange');
         }
       } catch (e, stackTrace) {
-        print('⚠️ Failed to exchange FileMaker token for Sanctum token: $e');
-        print('🔍 LOGIN DEBUG: Exception stack trace: $stackTrace');
-        print('⚠️ Continuing with FileMaker auth only - MCP features will use fallback');
+        DebugLogger.error('Failed to exchange FileMaker token for Sanctum token', e, stackTrace);
+        DebugLogger.warn('Continuing with FileMaker auth only - MCP features will use fallback');
         // Don't block login if Sanctum auth fails - user can still use the app
       }
-      print('🔍 LOGIN DEBUG: Step 3 completed');
+      DebugLogger.log('🔍 LOGIN DEBUG: Step 3 completed');
       
-      // Step 4: Navigate to start visit page
-      if (mounted) {
-        Navigator.pushReplacementNamed(context, '/start-visit');
+      // Step 4: Navigate based on user role
+      try {
+        DebugLogger.log('🔍 LOGIN DEBUG: Step 4 - Starting navigation logic');
+        if (mounted) {
+          final rawRole = staff.role?.trim() ?? '';
+          final role = rawRole.isEmpty ? '' : rawRole.toLowerCase();
+          DebugLogger.log('🔍 LOGIN DEBUG: Staff role: "${staff.role}", normalized: "$role"');
+          
+          // Check if user has admin privileges (can access both layouts)
+          // Supports: admin, Admin, ADMIN, supervisor, Supervisor, superadmin, SuperAdmin, etc.
+          final isAdmin = role == 'admin' || role == 'supervisor' || role == 'superadmin';
+          DebugLogger.log('🔍 LOGIN DEBUG: isAdmin: $isAdmin');
+          
+          // Allow SuperAdmin, driver, or empty role to access driver flow
+          final isDriver = role == 'driver' || role == 'superadmin' || role.isEmpty;
+          
+          if (isAdmin) {
+            // Show selection dialog for Admin/Supervisor/superAdmin
+            DebugLogger.log('🔍 LOGIN DEBUG: Admin role detected, showing layout selection');
+            _showLayoutSelectionDialog(staff);
+          } else if (isDriver) {
+            DebugLogger.log('🔍 LOGIN DEBUG: Routing to driver-home');
+            try {
+              Navigator.pushReplacement(
+                context,
+                PageRouteBuilder(
+                  pageBuilder: (context, animation, secondaryAnimation) {
+                    DebugLogger.log('🚀 Creating DriverHomePage for ${staff.name}');
+                    return DriverHomePage(driver: staff);
+                  },
+                  transitionsBuilder: (context, animation, secondaryAnimation, child) {
+                    return FadeTransition(opacity: animation, child: child);
+                  },
+                  transitionDuration: const Duration(milliseconds: 200),
+                ),
+              );
+            } catch (e, stackTrace) {
+              DebugLogger.error('Error navigating to DriverHomePage', e, stackTrace);
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Navigation error: $e'),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+              }
+            }
+          } else {
+            DebugLogger.log('🚀 Routing to attendance page (not driver)');
+            Navigator.pushReplacementNamed(
+              context,
+              '/attendance',
+              arguments: {'staff': staff},
+            );
+          }
+        } else {
+          DebugLogger.warn('Widget not mounted, cannot navigate');
+        }
+      } catch (e, stackTrace) {
+        DebugLogger.error('Exception in Step 4 navigation', e, stackTrace);
+        rethrow; // Re-throw to be caught by outer catch
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
+      DebugLogger.error('Exception in _login()', e, stackTrace);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -133,16 +181,95 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
+  /// Show layout selection dialog for Admin/Supervisor/superAdmin
+  Future<void> _showLayoutSelectionDialog(Staff staff) async {
+    final result = await showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text('Select Layout - ${staff.name}'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('Choose which layout you want to access:'),
+              const SizedBox(height: 24),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () => Navigator.pop(context, 'driver'),
+                  icon: const Icon(Icons.directions_car),
+                  label: const Text('Driver Route'),
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () => Navigator.pop(context, 'attendance'),
+                  icon: const Icon(Icons.access_time),
+                  label: const Text('Attendance'),
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (result != null && mounted) {
+      try {
+        if (result == 'driver') {
+          Navigator.pushReplacement(
+            context,
+            PageRouteBuilder(
+              pageBuilder: (context, animation, secondaryAnimation) {
+                return DriverHomePage(driver: staff);
+              },
+              transitionsBuilder: (context, animation, secondaryAnimation, child) {
+                return FadeTransition(opacity: animation, child: child);
+              },
+              transitionDuration: const Duration(milliseconds: 200),
+            ),
+          );
+        } else {
+          Navigator.pushReplacementNamed(
+            context,
+            '/attendance',
+            arguments: {'staff': staff},
+          );
+        }
+      } catch (e, stackTrace) {
+        DebugLogger.error('Error navigating after layout selection', e, stackTrace);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Navigation error: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.grey[100],
+      backgroundColor: Colors.white,
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
             padding: const EdgeInsets.all(24.0),
             child: Card(
-              elevation: 8,
+              elevation: 0,
+              color: Colors.white,
               child: Padding(
                 padding: const EdgeInsets.all(32.0),
                 child: Form(
@@ -150,15 +277,16 @@ class _LoginPageState extends State<LoginPage> {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      // Logo/Title
-                      Icon(
-                        Icons.medical_services,
-                        size: 64,
-                        color: Theme.of(context).primaryColor,
-                      ),
+                            // Logo
+                            Image.asset(
+                              'assets/images/sphere.png',
+                              height: 500,
+                              width: 500,
+                              fit: BoxFit.contain,
+                            ),
                       const SizedBox(height: 16),
                       Text(
-                        'DataSheets',
+                        'Attendance & Tripsheet',
                         style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                           fontWeight: FontWeight.bold,
                           color: Theme.of(context).primaryColor,
@@ -166,7 +294,7 @@ class _LoginPageState extends State<LoginPage> {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        'ABA Data Collection System',
+                        'Realtime Data Collection',
                         style: Theme.of(context).textTheme.bodyLarge?.copyWith(
                           color: Colors.grey[600],
                         ),

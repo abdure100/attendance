@@ -11,8 +11,10 @@ import '../models/behavior_definition.dart';
 import '../models/behavior_log.dart';
 import '../models/staff.dart';
 import '../config/app_config.dart';
+import '../utils/debug_logger.dart';
 import 'location_service.dart';
 import 'ip_service.dart';
+import 'token_service.dart';
 
 class FileMakerService extends ChangeNotifier {
   static String get baseUrl => AppConfig.baseUrl;
@@ -46,11 +48,11 @@ class FileMakerService extends ChangeNotifier {
       onError: (error, handler) async {
         if (error.response?.statusCode == 401) {
           // Token expired, try to refresh
-          print('🔄 Token expired, attempting to refresh...');
+          DebugLogger.warn('Token expired, attempting to refresh...');
           try {
             final refreshed = await authenticate();
             if (refreshed) {
-              print('✅ Token refreshed successfully');
+              DebugLogger.success('Token refreshed successfully');
               // Retry the original request with new token
               final options = error.requestOptions;
               options.headers['Authorization'] = 'Bearer $_token';
@@ -60,17 +62,22 @@ class FileMakerService extends ChangeNotifier {
                 handler.resolve(response);
                 return;
               } catch (retryError) {
-                print('❌ Retry failed: $retryError');
+                DebugLogger.error('Retry failed', retryError);
               }
             }
           } catch (e) {
-            print('❌ Token refresh failed: $e');
+            DebugLogger.error('Token refresh failed', e);
           }
         } else if (error.response?.statusCode == 400) {
           // Bad request - log the error details
-          print('❌ Bad Request (400): ${error.response?.data}');
-          print('❌ Request URL: ${error.requestOptions.uri}');
-          print('❌ Request Data: ${error.requestOptions.data}');
+          DebugLogger.error('Bad Request (400)', null);
+          DebugLogger.log('Request URL: ${error.requestOptions.uri}');
+          DebugLogger.log('Request Data: ${error.requestOptions.data}');
+          DebugLogger.log('Response: ${error.response?.data}');
+        } else {
+          DebugLogger.error('FileMaker API error: ${error.response?.statusCode}', error.error);
+          DebugLogger.log('Request URL: ${error.requestOptions.uri}');
+          DebugLogger.log('Response: ${error.response?.data}');
         }
         handler.next(error);
       },
@@ -129,20 +136,24 @@ class FileMakerService extends ChangeNotifier {
       // Validate existing token
       final isValid = await validateToken();
       if (!isValid) {
-        print('🔄 Token validation failed, re-authenticating...');
-      await authenticate();
+        DebugLogger.warn('Token validation failed, re-authenticating...');
+        await authenticate();
       }
     }
   }
+
+  /// Public method to ensure authentication (for use by other services)
+  Future<void> ensureAuthenticated() => _ensureAuthenticated();
 
   Future<bool> authenticate() async {
     try {
       final credentials = base64Encode(utf8.encode('$username:$password'));
       final url = '$baseUrl/databases/$database/sessions';
       
-      print('🔐 Attempting authentication to: $url');
-      print('🔐 Database: $database');
-      print('🔐 Username: $username');
+      DebugLogger.info('🔐 Attempting FileMaker authentication');
+      DebugLogger.log('URL: $url');
+      DebugLogger.log('Database: $database');
+      DebugLogger.log('Username: $username');
       
       final response = await http.post(
         Uri.parse(url),
@@ -153,19 +164,17 @@ class FileMakerService extends ChangeNotifier {
         },
       );
 
-
-      print('🔐 Response status: ${response.statusCode}');
-      print('🔐 Response body: ${response.body}');
+      DebugLogger.log('Response status: ${response.statusCode}');
+      DebugLogger.log('Response body: ${response.body}');
       
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         _token = data['response']['token'];
         _isAuthenticated = true;
         
-        print('✅ FileMaker authentication successful');
-        print('📋 FileMaker token set: ${_token?.substring(0, 20) ?? "null"}...');
-        print('📋 FileMaker token length: ${_token?.length ?? 0}');
-        print('📋 FileMaker token full value: $_token');
+        DebugLogger.success('FileMaker authentication successful');
+        DebugLogger.log('Token length: ${_token?.length ?? 0}');
+        DebugLogger.log('Token preview: ${_token?.substring(0, _token!.length > 20 ? 20 : _token!.length) ?? "null"}...');
         
         // Set Authorization header for Dio instance
         _dio.options.headers['Authorization'] = 'Bearer $_token';
@@ -174,9 +183,9 @@ class FileMakerService extends ChangeNotifier {
         try {
           final prefs = await SharedPreferences.getInstance();
           await prefs.setString('filemaker_token', _token!);
-          print('✅ FileMaker token stored in SharedPreferences');
+          DebugLogger.success('FileMaker token stored in SharedPreferences');
         } catch (e) {
-          print('⚠️ Error storing FileMaker token: $e');
+          DebugLogger.warn('Error storing FileMaker token: $e');
           // Ignore storage errors in web
         }
         
@@ -185,11 +194,27 @@ class FileMakerService extends ChangeNotifier {
         await Future.delayed(const Duration(milliseconds: 500));
         return true;
       } else {
-        print('Authentication failed with status: ${response.statusCode}');
-        print('Response body: ${response.body}');
+        DebugLogger.error('Authentication failed with status: ${response.statusCode}', null);
+        DebugLogger.log('Response body: ${response.body}');
+        
+        // Try to parse error message
+        try {
+          final errorData = json.decode(response.body);
+          final messages = errorData['messages'] as List?;
+          if (messages != null && messages.isNotEmpty) {
+            final errorMsg = messages[0]['message'] ?? 'Unknown error';
+            DebugLogger.error('FileMaker error: $errorMsg', null);
+          }
+        } catch (e) {
+          // Ignore JSON parse errors
+        }
       }
-    } catch (e) {
-      print('Authentication error: $e');
+    } catch (e, stackTrace) {
+      DebugLogger.error('Authentication error', e, stackTrace);
+      DebugLogger.log('Error type: ${e.runtimeType}');
+      if (e is http.ClientException) {
+        DebugLogger.error('Network error - check internet connection', e);
+      }
     }
     return false;
   }
@@ -226,10 +251,11 @@ class FileMakerService extends ChangeNotifier {
 
     // If token expired, refresh and retry
     if (response.statusCode == 401) {
-      print('🔄 HTTP request failed with 401, refreshing token...');
+      DebugLogger.warn('HTTP request failed with 401, refreshing token...');
+      DebugLogger.log('Request URL: $url');
       final refreshed = await authenticate();
       if (refreshed) {
-        print('✅ Token refreshed, retrying HTTP request...');
+        DebugLogger.success('Token refreshed, retrying HTTP request...');
         // Update headers with new token
         final newHeaders = Map<String, String>.from(headers);
         newHeaders['Authorization'] = 'Bearer $_token';
@@ -244,6 +270,9 @@ class FileMakerService extends ChangeNotifier {
         } else {
           response = await http.get(url, headers: newHeaders);
         }
+        DebugLogger.log('Retry response status: ${response.statusCode}');
+      } else {
+        DebugLogger.error('Token refresh failed, cannot retry request', null);
       }
     }
 
@@ -251,7 +280,116 @@ class FileMakerService extends ChangeNotifier {
   }
 
   // Client operations
+  /// Get clients via MCP API using company ID from login
+  Future<List<Client>> getClientsViaMCP({String? companyId}) async {
+    final companyToUse = companyId ?? _currentCompanyId;
+    if (companyToUse == null) {
+      throw Exception('No company ID available. Please login first.');
+    }
+
+    try {
+      // Get Sanctum token for MCP API
+      final sanctumToken = await TokenService.getSanctumToken();
+      if (sanctumToken == null) {
+        throw Exception('No Sanctum token available. Please login first.');
+      }
+
+      DebugLogger.info('📡 Fetching clients via MCP API for company: $companyToUse');
+      DebugLogger.log('Sanctum token preview: ${sanctumToken.substring(0, 10)}...');
+      
+      // Build URL - if mcpBaseUrl ends with /mcp, use /clients, otherwise use /clients directly
+      final baseUrl = AppConfig.mcpBaseUrl;
+      final url = baseUrl.endsWith('/mcp') 
+          ? '${baseUrl.replaceAll('/mcp', '')}/clients'
+          : '$baseUrl/clients';
+      DebugLogger.log('MCP API Base URL: $baseUrl');
+      DebugLogger.log('MCP API Full URL: $url');
+      DebugLogger.log('Query parameter: company_id=$companyToUse');
+      
+      final uri = Uri.parse(url).replace(queryParameters: {
+        'company_id': companyToUse,
+      });
+      DebugLogger.log('Final URI: $uri');
+      
+      DebugLogger.log('Making GET request to MCP API...');
+      final response = await http.get(
+        uri,
+        headers: {
+          'Authorization': 'Bearer $sanctumToken',
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+      );
+
+      DebugLogger.log('MCP API Response Status: ${response.statusCode}');
+      DebugLogger.log('MCP API Response Body: ${response.body}');
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        
+        if (data['success'] == true && data['data'] != null) {
+          final clientsData = data['data'] as List<dynamic>;
+          DebugLogger.success('MCP API returned ${clientsData.length} clients');
+          
+          final clients = <Client>[];
+          for (final clientData in clientsData) {
+            try {
+              // MCP API might return data in a different format, adapt as needed
+              final client = Client.fromJson(clientData as Map<String, dynamic>);
+              // Only include Active clients
+              if (clientData['Status'] == 'Active' || clientData['status'] == 'Active') {
+                clients.add(client);
+              }
+            } catch (e) {
+              DebugLogger.warn('Error parsing client: $e');
+              DebugLogger.log('Client data: $clientData');
+              continue;
+            }
+          }
+          
+          DebugLogger.success('Returning ${clients.length} active clients from MCP API');
+          return clients;
+        } else {
+          final errorMsg = data['message'] ?? 'Failed to fetch clients from MCP API';
+          DebugLogger.error('MCP API returned unsuccessful response', null);
+          DebugLogger.log('Response data: $data');
+          throw Exception(errorMsg);
+        }
+      } else if (response.statusCode == 401) {
+        DebugLogger.error('Unauthorized: Invalid or expired Sanctum token', null);
+        throw Exception('Unauthorized: Invalid or expired Sanctum token');
+      } else {
+        try {
+          final errorData = jsonDecode(response.body);
+          final errorMsg = errorData['message'] ?? 'MCP API error: ${response.statusCode}';
+          DebugLogger.error('MCP API error: $errorMsg', null);
+          DebugLogger.log('Full error response: ${response.body}');
+          throw Exception(errorMsg);
+        } catch (e) {
+          DebugLogger.error('MCP API error: ${response.statusCode}', e);
+          DebugLogger.log('Response body: ${response.body}');
+          throw Exception('MCP API error: ${response.statusCode}');
+        }
+      }
+    } catch (e, stackTrace) {
+      DebugLogger.error('Error fetching clients via MCP API', e, stackTrace);
+      rethrow;
+    }
+  }
+
+  /// Get clients from FileMaker (fallback method)
   Future<List<Client>> getClients() async {
+    // Try MCP API first, fallback to FileMaker
+    try {
+      return await getClientsViaMCP();
+    } catch (e) {
+      DebugLogger.warn('MCP API failed, falling back to FileMaker: $e');
+      return await _getClientsFromFileMaker();
+    }
+  }
+
+  /// Internal method to get clients directly from FileMaker
+  Future<List<Client>> _getClientsFromFileMaker() async {
     await _ensureAuthenticated();
     
     // Use company filter from session
@@ -294,26 +432,18 @@ class FileMakerService extends ChangeNotifier {
       if (code == '0') {
         final records = (data['response']?['data'] as List?) ?? const [];
         
-        print('🔍 FileMaker getClients Response:');
-        print('📊 Total records found: ${records.length}');
-        print('📋 Full response data: ${jsonEncode(data)}');
+        DebugLogger.info('FileMaker getClients Response: ${records.length} records found');
+        DebugLogger.log('Full response data: ${jsonEncode(data)}');
         
         // Check what records we're getting
         if (records.isNotEmpty) {
-          print('👥 First client record: ${jsonEncode(records.first)}');
-          
-          // Show all clients that will appear in dropdown
-          for (int i = 0; i < records.length; i++) {
-            final client = records[i]['fieldData'];
-            print('👤 Client $i: ${jsonEncode(client)}');
-          }
-          
+          DebugLogger.log('First client record: ${jsonEncode(records.first)}');
           
           // Check if all records have the same company and status
           final allCompanies = records.map((r) => r['fieldData']['Company']).toSet();
           final allStatuses = records.map((r) => r['fieldData']['Status']).toSet();
-          print('🏢 All companies: $allCompanies');
-          print('📊 All statuses: $allStatuses');
+          DebugLogger.log('All companies: $allCompanies');
+          DebugLogger.log('All statuses: $allStatuses');
         }
         
         // Filter to only Active clients on the client side with robust error handling
@@ -330,38 +460,100 @@ class FileMakerService extends ChangeNotifier {
               activeClients.add(client);
             }
           } catch (e) {
+            DebugLogger.warn('Error parsing client record $i: $e');
+            DebugLogger.log('Record data: ${records[i]}');
             // Continue processing other clients instead of failing completely
             continue;
           }
         }
-            
         
+        DebugLogger.success('Returning ${activeClients.length} active clients from FileMaker');
         return activeClients;
       }
 
       // FileMaker "no records match"
       if (code == '401') {
+        DebugLogger.warn('FileMaker returned no records (code 401)');
         return [];
       }
 
       // Any other FM error
+      DebugLogger.error('FileMaker error $code: $msg', null);
       throw Exception('FileMaker error $code: $msg');
 
-    } catch (e) {
+    } catch (e, stackTrace) {
       if (e is DioException) {
+        DebugLogger.error('DioException in _getClientsFromFileMaker', e, stackTrace);
+        DebugLogger.log('DioException type: ${e.type}');
+        DebugLogger.log('DioException message: ${e.message}');
+        DebugLogger.log('DioException response: ${e.response?.data}');
+      } else {
+        DebugLogger.error('Error in _getClientsFromFileMaker', e, stackTrace);
       }
       rethrow;
     }
   }
 
+  /// Get a client by ID from FileMaker
+  Future<Client?> getClientById(String clientId) async {
+    await _ensureAuthenticated();
+    
+    try {
+      final response = await _dio.post(
+        '/databases/$database/layouts/api_patients_list/_find',
+        data: {
+          'query': [
+            {'PrimaryKey': '==$clientId'}
+          ],
+          'limit': 1
+        },
+        options: Options(
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer $_token',
+            'Accept': 'application/json',
+          },
+        ),
+      );
+
+      if (response.statusCode == 200) {
+        final data = response.data as Map<String, dynamic>;
+        final records = data['response']['data'] as List<dynamic>? ?? [];
+        
+        if (records.isNotEmpty) {
+          final record = records.first;
+          final fieldData = record['fieldData'] as Map<String, dynamic>;
+          return Client.fromJson(fieldData);
+        }
+      }
+      
+      return null;
+    } catch (e, stackTrace) {
+      DebugLogger.error('Error getting client by ID', e, stackTrace);
+      return null;
+    }
+  }
+
   // Staff operations
-  Future<Staff?> getStaffByEmail(String email) async {
+  Future<Staff?> getStaffByEmail(String email, {String? companyId}) async {
     await _ensureAuthenticated();
 
+    // Build query with email and optional company filter
+    final queryConditions = [
+      {'email': '==${email.trim()}'},
+    ];
+    
+    // Add company filter if provided, or use current company ID if available
+    final companyToFilter = companyId ?? _currentCompanyId;
+    if (companyToFilter != null && companyToFilter.isNotEmpty) {
+      queryConditions.add({'Company': '==$companyToFilter'});
+      DebugLogger.log('🔍 Filtering staff by company: $companyToFilter');
+    } else {
+      DebugLogger.warn('No company filter applied (companyId: $companyId, _currentCompanyId: $_currentCompanyId)');
+    }
+
     final query = {
-      'query': [
-        {'email': '==${email.trim()}'},
-      ],
+      'query': queryConditions,
       'limit': 1
     };
 
@@ -392,15 +584,15 @@ class FileMakerService extends ChangeNotifier {
       if (code == '0') {
         final records = (data['response']?['data'] as List?) ?? const [];
         
-        print('🔍 FileMaker getStaffByEmail Response:');
-        print('📊 Total staff records found: ${records.length}');
-        print('📋 Full response data: ${jsonEncode(data)}');
+        DebugLogger.info('FileMaker getStaffByEmail Response: ${records.length} records found');
+        DebugLogger.log('Full response data: ${jsonEncode(data)}');
         
-        if (records.isNotEmpty) {
-          print('👤 Staff record: ${jsonEncode(records.first)}');
+        if (records.isEmpty) {
+          DebugLogger.warn('No staff records found for email: $email');
+          return null;
         }
-
-        if (records.isEmpty) return null;
+        
+        DebugLogger.log('Staff record: ${jsonEncode(records.first)}');
         final fieldData = (records.first['fieldData'] as Map<String, dynamic>)..removeWhere((k, v) => v == null);
         
         // Store session global variables
@@ -409,11 +601,15 @@ class FileMakerService extends ChangeNotifier {
         _currentStaffName = fieldData['FullName']?.toString();
         _currentStaffCanManualEntry = fieldData['Allow_manual_entry'] == 1 || fieldData['Allow_manual_entry'] == '1';
         
+        DebugLogger.log('Stored session variables - StaffId: $_currentStaffId, CompanyId: $_currentCompanyId');
+        
         try {
-          return Staff.fromJson(fieldData);
-        } catch (e) {
-          print('Error parsing staff data: $e');
-          print('Field data: $fieldData');
+          final staff = Staff.fromJson(fieldData);
+          DebugLogger.success('Successfully parsed staff: ${staff.name}');
+          return staff;
+        } catch (e, stackTrace) {
+          DebugLogger.error('Error parsing staff data', e, stackTrace);
+          DebugLogger.log('Field data: $fieldData');
           rethrow;
         }
       }
@@ -424,12 +620,236 @@ class FileMakerService extends ChangeNotifier {
       }
 
       // Any other FM error
+      DebugLogger.error('FileMaker error $code: $msg', null);
       throw Exception('FileMaker error $code: $msg');
 
-    } catch (e) {
+    } catch (e, stackTrace) {
       if (e is DioException) {
+        DebugLogger.error('DioException in getStaffByEmail', e, stackTrace);
+        DebugLogger.log('DioException type: ${e.type}');
+        DebugLogger.log('DioException message: ${e.message}');
+        DebugLogger.log('DioException response: ${e.response?.data}');
+        DebugLogger.log('Request URL: ${e.requestOptions.uri}');
+      } else {
+        DebugLogger.error('Error in getStaffByEmail', e, stackTrace);
       }
       rethrow;
+    }
+  }
+
+  /// Diagnostic method to check FileMaker service status
+  Future<Map<String, dynamic>> getDiagnostics() async {
+    final diagnostics = <String, dynamic>{
+      'isAuthenticated': _isAuthenticated,
+      'hasToken': _token != null,
+      'tokenLength': _token?.length ?? 0,
+      'currentStaffId': _currentStaffId,
+      'currentCompanyId': _currentCompanyId,
+      'currentStaffName': _currentStaffName,
+      'baseUrl': baseUrl,
+      'database': database,
+      'username': username,
+    };
+
+    // Test token validity if we have one
+    if (_token != null) {
+      try {
+        final isValid = await validateToken();
+        diagnostics['tokenValid'] = isValid;
+      } catch (e) {
+        diagnostics['tokenValid'] = false;
+        diagnostics['tokenValidationError'] = e.toString();
+      }
+    }
+
+    return diagnostics;
+  }
+
+  /// Create a record in FileMaker
+  /// Returns the recordId if successful
+  Future<String?> createRecord(String layout, Map<String, dynamic> fieldData) async {
+    await _ensureAuthenticated();
+    
+    try {
+      DebugLogger.log('Creating record in layout: $layout');
+      DebugLogger.log('Field data: $fieldData');
+      
+      final response = await _dio.post(
+        '/databases/$database/layouts/$layout/records',
+        data: {'fieldData': fieldData},
+        options: Options(
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer $_token',
+            'Accept': 'application/json',
+          },
+        ),
+      );
+      
+      DebugLogger.log('Response status: ${response.statusCode}');
+      DebugLogger.log('Response data: ${response.data}');
+      
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final data = response.data as Map<String, dynamic>;
+        final recordId = data['response']['recordId']?.toString();
+        DebugLogger.success('Record created in $layout: $recordId');
+        return recordId;
+      } else {
+        // Try to extract FileMaker error message
+        String errorMsg = 'Unknown error';
+        try {
+          final data = response.data as Map<String, dynamic>;
+          final messages = data['messages'] as List?;
+          if (messages != null && messages.isNotEmpty) {
+            errorMsg = messages[0]['message'] ?? 'Unknown error';
+            DebugLogger.error('FileMaker error: $errorMsg', null);
+          }
+        } catch (e) {
+          DebugLogger.error('Failed to parse error message', e);
+        }
+        
+        DebugLogger.error('Failed to create record in $layout: ${response.statusCode}', null);
+        DebugLogger.log('Full response: ${response.data}');
+        return null;
+      }
+    } catch (e, stackTrace) {
+      if (e is DioException) {
+        DebugLogger.error('DioException creating record in $layout', e, stackTrace);
+        DebugLogger.log('DioException type: ${e.type}');
+        DebugLogger.log('DioException message: ${e.message}');
+        DebugLogger.log('DioException response: ${e.response?.data}');
+        DebugLogger.log('DioException status code: ${e.response?.statusCode}');
+        
+        // Try to extract FileMaker error from response
+        if (e.response?.data != null) {
+          try {
+            final data = e.response!.data as Map<String, dynamic>;
+            final messages = data['messages'] as List?;
+            if (messages != null && messages.isNotEmpty) {
+              final errorMsg = messages[0]['message'] ?? 'Unknown error';
+              DebugLogger.error('FileMaker error message: $errorMsg', null);
+            }
+          } catch (parseError) {
+            DebugLogger.error('Could not parse FileMaker error', parseError);
+          }
+        }
+      } else {
+        DebugLogger.error('Error creating record in $layout', e, stackTrace);
+      }
+      return null;
+    }
+  }
+
+  /// Find a record by PrimaryKey and return its recordId
+  /// Returns null if not found
+  Future<String?> findRecordIdByPrimaryKey(String layout, String primaryKey) async {
+    await ensureAuthenticated();
+    
+    try {
+      final response = await _dio.post(
+        '/databases/$database/layouts/$layout/_find',
+        data: {
+          'query': [
+            {'PrimaryKey': '==$primaryKey'}
+          ],
+          'limit': 1
+        },
+        options: Options(
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer $_token',
+            'Accept': 'application/json',
+          },
+        ),
+      );
+
+      if (response.statusCode == 200) {
+        final data = response.data as Map<String, dynamic>;
+        final records = (data['response']?['data'] as List?) ?? const [];
+        
+        if (records.isNotEmpty) {
+          final recordId = records.first['recordId']?.toString();
+          return recordId;
+        }
+      }
+      
+      return null;
+    } catch (e, stackTrace) {
+      DebugLogger.error('Error finding recordId by PrimaryKey', e, stackTrace);
+      return null;
+    }
+  }
+
+  /// Update a record in FileMaker
+  /// Returns true if successful
+  Future<bool> updateRecord(String layout, String recordId, Map<String, dynamic> fieldData) async {
+    await _ensureAuthenticated();
+    
+    try {
+      DebugLogger.log('Updating record in layout: $layout, recordId: $recordId');
+      DebugLogger.log('Field data: $fieldData');
+      
+      final response = await _dio.patch(
+        '/databases/$database/layouts/$layout/records/$recordId',
+        data: {'fieldData': fieldData},
+        options: Options(
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer $_token',
+            'Accept': 'application/json',
+          },
+        ),
+      );
+      
+      DebugLogger.log('Response status: ${response.statusCode}');
+      DebugLogger.log('Response data: ${response.data}');
+      
+      if (response.statusCode == 200) {
+        DebugLogger.success('Record updated in $layout: $recordId');
+        return true;
+      } else {
+        // Try to extract FileMaker error message
+        String errorMsg = 'Unknown error';
+        try {
+          final data = response.data as Map<String, dynamic>;
+          final messages = data['messages'] as List?;
+          if (messages != null && messages.isNotEmpty) {
+            errorMsg = messages[0]['message'] ?? 'Unknown error';
+            DebugLogger.error('FileMaker error: $errorMsg', null);
+          }
+        } catch (e) {
+          DebugLogger.error('Failed to parse error message', e);
+        }
+        
+        DebugLogger.error('Failed to update record in $layout: ${response.statusCode}', null);
+        DebugLogger.log('Full response: ${response.data}');
+        return false;
+      }
+    } catch (e, stackTrace) {
+      if (e is DioException) {
+        DebugLogger.error('DioException updating record in $layout', e, stackTrace);
+        DebugLogger.log('DioException type: ${e.type}');
+        DebugLogger.log('DioException message: ${e.message}');
+        DebugLogger.log('DioException response: ${e.response?.data}');
+        DebugLogger.log('DioException status code: ${e.response?.statusCode}');
+        
+        // Try to extract FileMaker error from response
+        if (e.response?.data != null) {
+          try {
+            final data = e.response!.data as Map<String, dynamic>;
+            final messages = data['messages'] as List?;
+            if (messages != null && messages.isNotEmpty) {
+              final errorMsg = messages[0]['message'] ?? 'Unknown error';
+              DebugLogger.error('FileMaker error message: $errorMsg', null);
+            }
+          } catch (parseError) {
+            DebugLogger.error('Could not parse FileMaker error', parseError);
+          }
+        }
+      } else {
+        DebugLogger.error('Error updating record in $layout', e, stackTrace);
+      }
+      return false;
     }
   }
 

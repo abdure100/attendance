@@ -32,7 +32,7 @@ class AppConfig {
   static const String password = 'YOUR_PRODUCTION_PASSWORD';
   
   // Keep these the same
-  static const String appName = 'DataSheets';
+  static const String appName = 'Attendance';
   static const String appVersion = '1.0.0';
   static const int connectionTimeout = 30;
   static const int receiveTimeout = 30;
@@ -98,8 +98,8 @@ Ensure your production FileMaker server has:
 ### Basic Usage
 
 ```dart
-import 'package:datasheets/services/mcp_service.dart';
-import 'package:datasheets/config/app_config.dart';
+import 'package:attendance/services/mcp_service.dart';
+import 'package:attendance/config/app_config.dart';
 
 // Initialize MCP service with token
 final mcpService = MCPService(

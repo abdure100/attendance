@@ -1,4 +1,4 @@
-import 'package:datasheets/services/note_drafting_service.dart';
+import 'package:attendance/services/note_drafting_service.dart';
 
 /// Test script for note drafting widgets
 void main() async {

@@ -1,6 +1,6 @@
 {
-    "name": "datasheets",
-    "short_name": "datasheets",
+    "name": "attendance",
+    "short_name": "attendance",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",

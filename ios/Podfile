@@ -48,6 +48,16 @@ post_install do |installer|
       config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] << 'PERMISSION_LOCATION=1'
       # Suppress deprecation warnings for now
       config.build_settings['GCC_WARN_INHIBIT_ALL_WARNINGS'] = 'YES'
+      # Fix for PrivacyInfo.xcprivacy files - exclude from compilation
+      config.build_settings['EXCLUDED_SOURCE_FILE_NAMES'] ||= []
+      config.build_settings['EXCLUDED_SOURCE_FILE_NAMES'] << '**/PrivacyInfo.xcprivacy'
+      # Fix for connectivity_plus and other plugins - ensure Flutter framework is found
+      config.build_settings['HEADER_SEARCH_PATHS'] ||= ['$(inherited)']
+      config.build_settings['HEADER_SEARCH_PATHS'] << '$(PODS_ROOT)/Headers/Public/Flutter'
+      config.build_settings['HEADER_SEARCH_PATHS'] << '$(PODS_ROOT)/Headers/Public/FlutterMacOS'
+      config.build_settings['HEADER_SEARCH_PATHS'] << '$(PODS_ROOT)/Headers/Public/Flutter/Flutter'
+      # Fix double-quoted includes in framework headers
+      config.build_settings['CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER'] = 'NO'
     end
   end
 end

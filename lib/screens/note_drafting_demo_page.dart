@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:datasheets/services/note_drafting_service.dart';
-import 'package:datasheets/widgets/note_drafting_widget.dart';
+import 'package:attendance/services/note_drafting_service.dart';
+import 'package:attendance/widgets/note_drafting_widget.dart';
 
 /// Demo page showing how to use the note drafting widgets
 class NoteDraftingDemoPage extends StatefulWidget {

@@ -12,7 +12,7 @@ class Staff {
   final String passwordRaw;
   @JsonKey(name: 'FullName')
   final String name;
-  @JsonKey(name: 'role')
+  @JsonKey(name: 'Role')
   final String? role;
   @JsonKey(name: 'active', fromJson: _boolFromJson)
   final bool? active;

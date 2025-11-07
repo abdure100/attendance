@@ -1,5 +1,5 @@
-import 'package:datasheets/services/filemaker_service.dart';
-import 'package:datasheets/models/session_record.dart';
+import 'package:attendance/services/filemaker_service.dart';
+import 'package:attendance/models/session_record.dart';
 
 /// Service for handling trial data operations with FileMaker
 class TrialDataService {

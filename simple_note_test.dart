@@ -1,4 +1,4 @@
-import 'package:datasheets/services/note_drafting_service.dart';
+import 'package:attendance/services/note_drafting_service.dart';
 
 /// Simple test for note drafting without Flutter dependencies
 void main() async {

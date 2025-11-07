@@ -1,5 +1,5 @@
-import 'package:datasheets/services/filemaker_service.dart';
-import 'package:datasheets/services/trial_data_service.dart';
+import 'package:attendance/services/filemaker_service.dart';
+import 'package:attendance/services/trial_data_service.dart';
 
 /// Example usage of TrialDataService for saving trial data to FileMaker
 void main() async {

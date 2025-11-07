@@ -1,10 +1,10 @@
-import 'package:datasheets/services/note_drafting_service.dart';
-import 'package:datasheets/services/trial_data_service.dart';
-import 'package:datasheets/services/filemaker_service.dart';
-import 'package:datasheets/models/visit.dart';
-import 'package:datasheets/models/client.dart';
-import 'package:datasheets/models/program_assignment.dart';
-import 'package:datasheets/models/session_record.dart';
+import 'package:attendance/services/note_drafting_service.dart';
+import 'package:attendance/services/trial_data_service.dart';
+import 'package:attendance/services/filemaker_service.dart';
+import 'package:attendance/models/visit.dart';
+import 'package:attendance/models/client.dart';
+import 'package:attendance/models/program_assignment.dart';
+import 'package:attendance/models/session_record.dart';
 
 /// Example of using the note drafting service with trial data
 void main() async {

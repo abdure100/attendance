@@ -18,6 +18,12 @@ class Client {
   final String? agencyId;
   @JsonKey(name: 'dob')
   final String? dateOfBirth;
+  @JsonKey(name: 'caregiverPhone')
+  final String? caregiverPhone;
+  @JsonKey(name: 'homeLatLng')
+  final String? homeLatLng; // "lat,lng" format
+  @JsonKey(name: 'homeAddress')
+  final String? homeAddress;
 
   const Client({
     required this.id,
@@ -27,6 +33,9 @@ class Client {
     this.email,
     this.agencyId,
     this.dateOfBirth,
+    this.caregiverPhone,
+    this.homeLatLng,
+    this.homeAddress,
   });
 
   factory Client.fromJson(Map<String, dynamic> json) => _$ClientFromJson(json);
@@ -40,6 +49,9 @@ class Client {
     String? email,
     String? agencyId,
     String? dateOfBirth,
+    String? caregiverPhone,
+    String? homeLatLng,
+    String? homeAddress,
   }) {
     return Client(
       id: id ?? this.id,
@@ -49,6 +61,9 @@ class Client {
       email: email ?? this.email,
       agencyId: agencyId ?? this.agencyId,
       dateOfBirth: dateOfBirth ?? this.dateOfBirth,
+      caregiverPhone: caregiverPhone ?? this.caregiverPhone,
+      homeLatLng: homeLatLng ?? this.homeLatLng,
+      homeAddress: homeAddress ?? this.homeAddress,
     );
   }
 

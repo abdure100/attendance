@@ -155,7 +155,7 @@ flutter test test_client_setup.dart
 ### **3. Manual Setup (if needed)**
 ```dart
 import 'setup_client_03626AAB.dart';
-import 'package:datasheets/services/filemaker_service.dart';
+import 'package:attendance/services/filemaker_service.dart';
 
 final fileMakerService = FileMakerService();
 final setup = Client03626AABSetup(fileMakerService);

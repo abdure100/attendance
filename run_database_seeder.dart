@@ -1,4 +1,4 @@
-import 'package:datasheets/services/filemaker_service.dart';
+import 'package:attendance/services/filemaker_service.dart';
 import 'test/mock_data/database_seeder.dart';
 
 /// Script to run the database seeder

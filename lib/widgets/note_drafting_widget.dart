@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:datasheets/services/note_drafting_service.dart';
+import 'package:attendance/services/note_drafting_service.dart';
 
 /// Widget for AI-powered clinical note generation and editing
 class NoteDraftingWidget extends StatefulWidget {

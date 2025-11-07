@@ -1,10 +1,10 @@
 import 'dart:convert';
-import 'package:datasheets/services/filemaker_service.dart';
-import 'package:datasheets/models/visit.dart';
-import 'package:datasheets/models/program_assignment.dart';
-import 'package:datasheets/models/behavior_definition.dart';
-import 'package:datasheets/models/session_record.dart';
-import 'package:datasheets/models/behavior_log.dart';
+import 'package:attendance/services/filemaker_service.dart';
+import 'package:attendance/models/visit.dart';
+import 'package:attendance/models/program_assignment.dart';
+import 'package:attendance/models/behavior_definition.dart';
+import 'package:attendance/models/session_record.dart';
+import 'package:attendance/models/behavior_log.dart';
 
 /// Fixed database seeder that matches FileMaker schema requirements
 class FixedDatabaseSeeder {

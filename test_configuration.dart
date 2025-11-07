@@ -1,5 +1,5 @@
-import 'package:datasheets/config/note_drafting_config.dart';
-import 'package:datasheets/services/note_drafting_service.dart';
+import 'package:attendance/config/note_drafting_config.dart';
+import 'package:attendance/services/note_drafting_service.dart';
 
 /// Test script for configuration and environment setup
 void main() {

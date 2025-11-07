@@ -1,4 +1,4 @@
-name: sphere_datasheets
+name: attendance
 description: >
   ABA Data Collection App with FileMaker Integration.
   A modern Flutter application for recording, tracking, and syncing ABA session data through FileMaker.
@@ -29,6 +29,23 @@ dependencies:
   
   # Local storage
   shared_preferences: ^2.2.2
+  drift: ^2.14.0
+  sqflite: ^2.3.0
+  path_provider: ^2.1.1
+  
+  # Location & Geocoding
+  geolocator: ^11.0.0
+  geocoding: ^3.0.0
+  
+  # Permissions
+  permission_handler: ^11.3.0
+  
+  # Connectivity
+  connectivity_plus: ^5.0.0
+  
+  # Image & Signature capture
+  image_picker: ^1.0.7
+  signature: ^5.5.0
   
   # UI components
   cupertino_icons: ^1.0.6
@@ -42,6 +59,7 @@ dev_dependencies:
   flutter_lints: ^5.0.0
   json_serializable: ^6.7.1
   build_runner: ^2.4.7
+  drift_dev: ^2.14.0
   
   # Testing dependencies
   mockito: ^5.4.2

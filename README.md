@@ -32,7 +32,7 @@ A Flutter application for collecting Applied Behavior Analysis (ABA) data with F
 1. Clone or download this project
 2. Navigate to the project directory:
    ```bash
-   cd datasheets
+   cd attendance
    ```
 
 3. Install dependencies:

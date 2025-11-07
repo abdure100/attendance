@@ -1246,7 +1246,11 @@ class _SessionPageState extends State<SessionPage> {
                       valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                     ),
                   )
-                : const Icon(Icons.auto_awesome),
+                : const Icon(
+                    Icons.auto_fix_high,
+                    color: Colors.white,
+                    size: 28,
+                  ),
             tooltip: 'Generate Mock Data for All Programs',
             onPressed: _isGeneratingMockData ? null : _showMockDataDialog,
           ),
@@ -1446,6 +1450,28 @@ class _SessionPageState extends State<SessionPage> {
                   ),
                 ),
                 
+                const SizedBox(height: 20),
+                
+                // Mock Data Generator Button - Visible in body
+                ElevatedButton.icon(
+                  onPressed: _isGeneratingMockData ? null : _showMockDataDialog,
+                  icon: _isGeneratingMockData
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                          ),
+                        )
+                      : const Icon(Icons.auto_fix_high),
+                  label: Text(_isGeneratingMockData ? 'Generating Mock Data...' : 'Generate Mock Data for All Programs'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.purple,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                ),
                 const SizedBox(height: 20),
                 
                 // Program Assignments Section

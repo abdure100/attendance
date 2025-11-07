@@ -28,8 +28,8 @@ You now have comprehensive Flutter widgets for AI-powered clinical note generati
 
 ### **Basic Usage**
 ```dart
-import 'package:datasheets/widgets/note_drafting_widget.dart';
-import 'package:datasheets/services/note_drafting_service.dart';
+import 'package:attendance/widgets/note_drafting_widget.dart';
+import 'package:attendance/services/note_drafting_service.dart';
 
 // Create session data
 final session = SessionData(

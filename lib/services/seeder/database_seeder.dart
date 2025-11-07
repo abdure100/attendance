@@ -1,11 +1,11 @@
 import 'dart:convert';
-import 'package:datasheets/services/filemaker_service.dart';
-import 'package:datasheets/models/client.dart';
-import 'package:datasheets/models/visit.dart';
-import 'package:datasheets/models/program_assignment.dart';
-import 'package:datasheets/models/behavior_definition.dart';
-import 'package:datasheets/models/session_record.dart';
-import 'package:datasheets/models/behavior_log.dart';
+import 'package:attendance/services/filemaker_service.dart';
+import 'package:attendance/models/client.dart';
+import 'package:attendance/models/visit.dart';
+import 'package:attendance/models/program_assignment.dart';
+import 'package:attendance/models/behavior_definition.dart';
+import 'package:attendance/models/session_record.dart';
+import 'package:attendance/models/behavior_log.dart';
 import 'goal_based_mock_data.dart';
 
 /// Database seeder for goal-based mock data

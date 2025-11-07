@@ -23,14 +23,42 @@
   <!-- iOS meta tags & icons -->
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black">
-  <meta name="apple-mobile-web-app-title" content="datasheets">
+  <meta name="apple-mobile-web-app-title" content="attendance">
   <link rel="apple-touch-icon" href="icons/Icon-192.png">
 
   <!-- Favicon -->
   <link rel="icon" type="image/png" href="favicon.png"/>
 
-  <title>datasheets</title>
+  <title>attendance</title>
   <link rel="manifest" href="manifest.json">
+  
+  <!-- sql.js for Drift database on web -->
+  <!-- Load sql.js synchronously before Flutter app starts -->
+  <!-- Configure sql.js to load WASM with proper MIME type -->
+  <script>
+    // Configure sql.js to locate WASM file
+    // This must be set before sql.js loads
+    window.SQL = window.SQL || {};
+    window.SQL.locateFile = function(file) {
+      if (file.endsWith('.wasm')) {
+        // Use local WASM file to avoid CDN MIME type issues
+        const wasmUrl = 'sql-wasm.wasm';
+        console.log('Loading WASM from local file:', wasmUrl);
+        return wasmUrl;
+      }
+      return file;
+    };
+  </script>
+  <!-- Load sql.js synchronously (no async/defer) to ensure it's ready before Flutter -->
+  <script src="https://cdn.jsdelivr.net/npm/sql.js@1.8.0/dist/sql-wasm.js"></script>
+  <script>
+    // Verify sql.js loaded correctly
+    if (typeof initSqlJs === 'function') {
+      console.log('✅ sql.js loaded successfully');
+    } else {
+      console.error('❌ sql.js failed to load');
+    }
+  </script>
 </head>
 <body>
   <script src="flutter_bootstrap.js" async></script>

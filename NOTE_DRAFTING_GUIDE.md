@@ -17,7 +17,7 @@ The Note Drafting Service integrates AI-powered clinical note generation with yo
 
 ### **1. Basic Usage**
 ```dart
-import 'package:datasheets/services/note_drafting_service.dart';
+import 'package:attendance/services/note_drafting_service.dart';
 
 // Create session data
 final session = SessionData(

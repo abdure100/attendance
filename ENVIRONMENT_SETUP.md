@@ -25,7 +25,7 @@ class AppConfig {
   static const String password = 'Sphere321\$';
   
   // App Configuration
-  static const String appName = 'DataSheets';
+  static const String appName = 'Attendance';
   static const String appVersion = '1.0.0';
   
   // API Configuration

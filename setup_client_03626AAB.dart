@@ -1,8 +1,8 @@
 import 'dart:convert';
-import 'package:datasheets/models/client.dart';
-import 'package:datasheets/models/visit.dart';
-import 'package:datasheets/models/program_assignment.dart';
-import 'package:datasheets/services/filemaker_service.dart';
+import 'package:attendance/models/client.dart';
+import 'package:attendance/models/visit.dart';
+import 'package:attendance/models/program_assignment.dart';
+import 'package:attendance/services/filemaker_service.dart';
 
 /// Setup script for client 03626AAB-FEF9-4325-A70D-191463DBAF2A
 /// with 8 programs and scheduled sessions from 09/16/2025 to 10/15/2025
