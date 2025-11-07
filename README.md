@@ -225,3 +225,4 @@ This project is proprietary software. All rights reserved.
 ## Support
 
 For technical support or questions about implementation, contact the development team.
+# attendance
