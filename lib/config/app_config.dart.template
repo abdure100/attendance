@@ -1,15 +1,34 @@
+// lib/config/app_config.dart
 class AppConfig {
-  // FileMaker Configuration
-  static const String baseUrl = 'db.sphereemr.com';
-  static const String database = 'EIDBI';
-  static const String username = 'fmapi';
-  static const String password = 'Sphere321!';
-  
-  // App Configuration
-  static const String appName = 'Attendance';
+  // ===== App =====
+  static const String appName    = 'Attendance';
   static const String appVersion = '1.0.0';
-  
-  // API Configuration
-  static const int connectionTimeout = 30;
-  static const int receiveTimeout = 30;
+
+  // ===== FileMaker (Data API) =====
+  // Host you provided: db.sphereemr.com
+  // Most services expect the full Data API root (scheme + path).
+  static const String fmHost = 'db.sphereemr.com';
+  static const String baseUrl = 'https://db.sphereemr.com/fmi/data/vLatest';
+
+  static const String database = 'EIDBI';
+  // ⚠️ Set credentials via --dart-define or update these values
+  // Example: flutter run --dart-define=FM_USERNAME=youruser --dart-define=FM_PASSWORD=yourpass
+  static const String? username = null; // Set via --dart-define or environment
+  static const String? password = null; // Set via --dart-define or environment
+
+  // Common sessions endpoint helper (used by your logs)
+  static String get fmSessionsUrl => '$baseUrl/databases/$database/sessions';
+
+  // ===== MCP / Laravel API =====
+  // Your logs showed exchange at: https://eidbi.sphereemr.com/api/auth/exchange-filemaker-token
+  static const String mcpBaseUrl = 'https://eidbi.sphereemr.com/api';
+
+  // ===== Networking =====
+  static const int connectionTimeout = 30; // seconds
+  static const int receiveTimeout    = 30; // seconds
+
+  // ===== Runtime (mutable) =====
+  // Your TokenService reads/writes this after login.
+  static String? sanctumToken;
 }
+

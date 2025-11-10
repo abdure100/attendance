@@ -19,8 +19,8 @@ import 'token_service.dart';
 class FileMakerService extends ChangeNotifier {
   static String get baseUrl => AppConfig.baseUrl;
   static const String database = AppConfig.database;
-  static const String username = AppConfig.username;
-  static const String password = AppConfig.password;
+  static String? get username => AppConfig.username;
+  static String? get password => AppConfig.password;
   
   String? _token;
   bool _isAuthenticated = false;
@@ -147,6 +147,11 @@ class FileMakerService extends ChangeNotifier {
 
   Future<bool> authenticate() async {
     try {
+      if (username == null || password == null) {
+        DebugLogger.error('FileMaker credentials not configured. Please set AppConfig.username and AppConfig.password', null);
+        return false;
+      }
+      
       final credentials = base64Encode(utf8.encode('$username:$password'));
       final url = '$baseUrl/databases/$database/sessions';
       
