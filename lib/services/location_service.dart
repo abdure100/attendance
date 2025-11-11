@@ -44,18 +44,37 @@ class LocationService {
       List<Placemark> placemarks = await placemarkFromCoordinates(latitude, longitude);
       if (placemarks.isNotEmpty) {
         final place = placemarks[0];
-        // Format address
-        final addressParts = [
-          place.street,
-          place.locality,
-          place.administrativeArea,
-          place.postalCode,
-        ].where((part) => part != null && part.isNotEmpty).toList();
-        return addressParts.join(', ');
+        // Format address - safely handle nullable fields
+        final addressParts = <String>[];
+        
+        if (place.street != null && place.street!.isNotEmpty) {
+          addressParts.add(place.street!);
+        }
+        if (place.locality != null && place.locality!.isNotEmpty) {
+          addressParts.add(place.locality!);
+        }
+        if (place.administrativeArea != null && place.administrativeArea!.isNotEmpty) {
+          addressParts.add(place.administrativeArea!);
+        }
+        if (place.postalCode != null && place.postalCode!.isNotEmpty) {
+          addressParts.add(place.postalCode!);
+        }
+        
+        if (addressParts.isEmpty) {
+          // Fallback: use country if available
+          if (place.country != null && place.country!.isNotEmpty) {
+            addressParts.add(place.country!);
+          }
+        }
+        
+        return addressParts.isEmpty ? null : addressParts.join(', ');
       }
       return null;
-    } catch (e) {
+    } catch (e, stackTrace) {
       print('❌ Error reverse geocoding: $e');
+      print('Stack trace: $stackTrace');
+      // On web or when geocoding fails, return null gracefully
+      // The address is optional and can be backfilled later
       return null;
     }
   }

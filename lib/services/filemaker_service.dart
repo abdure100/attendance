@@ -564,6 +564,10 @@ class FileMakerService extends ChangeNotifier {
 
 
     try {
+      DebugLogger.log('🔍 getStaffByEmail: Querying for email: $email');
+      DebugLogger.log('🔍 getStaffByEmail: Query conditions: ${jsonEncode(queryConditions)}');
+      DebugLogger.log('🔍 getStaffByEmail: Full query: ${jsonEncode(query)}');
+      
       final response = await _dio.post(
         '/databases/$database/layouts/api_staffs/_find',
         data: query,
@@ -577,6 +581,8 @@ class FileMakerService extends ChangeNotifier {
         ),
       );
 
+      DebugLogger.log('🔍 getStaffByEmail: Response status: ${response.statusCode}');
+      DebugLogger.log('🔍 getStaffByEmail: Response data: ${jsonEncode(response.data)}');
 
       // FileMaker response analysis
       final data = response.data as Map<String, dynamic>;
@@ -584,6 +590,7 @@ class FileMakerService extends ChangeNotifier {
       final code = msgs.isNotEmpty ? '${msgs.first['code']}' : null;
       final msg = msgs.isNotEmpty ? '${msgs.first['message']}' : null;
 
+      DebugLogger.log('🔍 getStaffByEmail: FileMaker code: $code, message: $msg');
 
       // FileMaker "OK"
       if (code == '0') {
@@ -621,11 +628,13 @@ class FileMakerService extends ChangeNotifier {
 
       // FileMaker "no records match"
       if (code == '401') {
+        DebugLogger.warn('No records found for email: $email (FileMaker code 401)');
         return null;
       }
 
       // Any other FM error
       DebugLogger.error('FileMaker error $code: $msg', null);
+      DebugLogger.log('Full FileMaker response: ${jsonEncode(data)}');
       throw Exception('FileMaker error $code: $msg');
 
     } catch (e, stackTrace) {
@@ -668,6 +677,117 @@ class FileMakerService extends ChangeNotifier {
     }
 
     return diagnostics;
+  }
+
+  /// Manual method to test trip creation directly in FileMaker
+  /// This bypasses the sync queue and creates the record immediately
+  /// Useful for testing and debugging trip creation issues
+  Future<Map<String, dynamic>> manualCreateTrip({
+    required String driverId,
+    required String direction, // "AM" | "PM"
+    String? date, // Optional: defaults to today in MM/DD/YYYY format
+    String? status, // Optional: defaults to "pending"
+  }) async {
+    await _ensureAuthenticated();
+    
+    try {
+      final now = DateTime.now();
+      final tripDate = date ?? '${now.month.toString().padLeft(2, '0')}/${now.day.toString().padLeft(2, '0')}/${now.year}';
+      
+      final fieldData = <String, dynamic>{
+        'date': tripDate,
+        'driverId': driverId,
+        'direction': direction,
+        'status': status ?? 'pending',
+      };
+      
+      DebugLogger.info('🧪 Manual trip creation test');
+      DebugLogger.log('Field data: $fieldData');
+      DebugLogger.log('Date value: $tripDate (type: ${tripDate.runtimeType})');
+      DebugLogger.log('All field names: ${fieldData.keys.join(", ")}');
+      
+      final recordId = await createRecord('api_trips', fieldData);
+      
+      if (recordId != null) {
+        DebugLogger.success('✅ Manual trip creation successful! RecordId: $recordId');
+        return {
+          'success': true,
+          'recordId': recordId,
+          'fieldData': fieldData,
+        };
+      } else {
+        DebugLogger.error('❌ Manual trip creation failed', null);
+        return {
+          'success': false,
+          'error': 'Trip creation returned null recordId',
+          'fieldData': fieldData,
+        };
+      }
+    } catch (e, stackTrace) {
+      DebugLogger.error('Error in manual trip creation', e, stackTrace);
+      return {
+        'success': false,
+        'error': e.toString(),
+        'stackTrace': stackTrace.toString(),
+      };
+    }
+  }
+
+  /// Manual method to test attendance creation directly in FileMaker
+  /// This bypasses the sync queue and creates the record immediately
+  /// Useful for testing and debugging attendance creation issues
+  Future<Map<String, dynamic>> manualCreateAttendance({
+    required String clientId,
+    required String capturedBy,
+    String? timeIn, // Optional: ISO 8601 format timestamp
+    String? timeOut, // Optional: ISO 8601 format timestamp
+  }) async {
+    await _ensureAuthenticated();
+    
+    try {
+      final now = DateTime.now();
+      final timeInStr = timeIn ?? now.toIso8601String().split('.')[0];
+      
+      final fieldData = <String, dynamic>{
+        'clientId': clientId,
+        'capturedBy': capturedBy,
+        'timeIn': timeInStr,
+      };
+      
+      if (timeOut != null) {
+        fieldData['timeOut'] = timeOut;
+      }
+      
+      DebugLogger.info('🧪 Manual attendance creation test');
+      DebugLogger.log('Field data: $fieldData');
+      DebugLogger.log('All field names: ${fieldData.keys.join(", ")}');
+      DebugLogger.log('Note: date field not included - FileMaker will auto-generate it');
+      
+      final recordId = await createRecord('api_attendances', fieldData);
+      
+      if (recordId != null) {
+        DebugLogger.success('✅ Manual attendance creation successful! RecordId: $recordId');
+        return {
+          'success': true,
+          'recordId': recordId,
+          'fieldData': fieldData,
+        };
+      } else {
+        DebugLogger.error('❌ Manual attendance creation failed', null);
+        return {
+          'success': false,
+          'error': 'Attendance creation returned null recordId',
+          'fieldData': fieldData,
+        };
+      }
+    } catch (e, stackTrace) {
+      DebugLogger.error('Error in manual attendance creation', e, stackTrace);
+      return {
+        'success': false,
+        'error': e.toString(),
+        'stackTrace': stackTrace.toString(),
+      };
+    }
   }
 
   /// Create a record in FileMaker
@@ -781,6 +901,49 @@ class FileMakerService extends ChangeNotifier {
       return null;
     } catch (e, stackTrace) {
       DebugLogger.error('Error finding recordId by PrimaryKey', e, stackTrace);
+      return null;
+    }
+  }
+
+  /// Find attendance record by clientId and timeIn
+  /// Returns the recordId if found, null otherwise
+  Future<String?> findAttendanceRecordId(String clientId, String timeIn) async {
+    await ensureAuthenticated();
+    
+    try {
+      final response = await _dio.post(
+        '/databases/$database/layouts/api_attendances/_find',
+        data: {
+          'query': [
+            {'clientId': '==$clientId'},
+            {'timeIn': '==$timeIn'},
+          ],
+          'limit': 1
+        },
+        options: Options(
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer $_token',
+            'Accept': 'application/json',
+          },
+        ),
+      );
+
+      if (response.statusCode == 200) {
+        final data = response.data as Map<String, dynamic>;
+        final records = (data['response']?['data'] as List?) ?? const [];
+        
+        if (records.isNotEmpty) {
+          final recordId = records.first['recordId']?.toString();
+          DebugLogger.log('Found attendance recordId: $recordId for clientId: $clientId, timeIn: $timeIn');
+          return recordId;
+        }
+      }
+      
+      DebugLogger.warn('Attendance record not found for clientId: $clientId, timeIn: $timeIn');
+      return null;
+    } catch (e, stackTrace) {
+      DebugLogger.error('Error finding attendance record by clientId and timeIn', e, stackTrace);
       return null;
     }
   }

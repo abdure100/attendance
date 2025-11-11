@@ -52,11 +52,15 @@ class _LoginPageState extends State<LoginPage> {
       await Future.delayed(const Duration(milliseconds: 100));
       
       // Step 2: Validate user credentials against staff table
+      DebugLogger.log('🔍 LOGIN: Looking up staff with email: $email');
       final staff = await fileMakerService.getStaffByEmail(email);
       
       if (staff == null) {
-        throw Exception('User not found');
+        DebugLogger.error('User not found for email: $email', null);
+        throw Exception('User not found. Please check your email address or contact your administrator.');
       }
+      
+      DebugLogger.success('Staff found: ${staff.name} (ID: ${staff.id})');
       
       // Compare password with Password_raw field
       if (staff.passwordRaw != password) {
@@ -346,6 +350,50 @@ class _LoginPageState extends State<LoginPage> {
                         enabled: !_isLoading,
                       ),
                       const SizedBox(height: 24),
+
+                      // Quick Login Buttons
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: _isLoading ? null : () {
+                                _usernameController.text = 'sacdiya@sphereemr.com';
+                                _passwordController.text = 'Welcome123\$';
+                              },
+                              style: OutlinedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(vertical: 12),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                              ),
+                              child: const Text(
+                                'Sacdiya - Staff',
+                                style: TextStyle(fontSize: 14),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: _isLoading ? null : () {
+                                _usernameController.text = 'aisha@sphereemr.com';
+                                _passwordController.text = 'Welcome123\$';
+                              },
+                              style: OutlinedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(vertical: 12),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                              ),
+                              child: const Text(
+                                'Aisha - Driver',
+                                style: TextStyle(fontSize: 14),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
 
                       // Login Button
                       SizedBox(

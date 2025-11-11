@@ -8,6 +8,8 @@ import '../models/staff.dart';
 import '../services/trip_service.dart';
 import '../services/filemaker_service.dart';
 import '../services/auth_service.dart';
+import '../services/offline_sync_service.dart';
+import '../services/attendance_service.dart';
 import '../utils/debug_logger.dart';
 import '../widgets/sync_banner.dart';
 import 'stop_sheet_page.dart';
@@ -31,6 +33,8 @@ class _DriverHomePageState extends State<DriverHomePage> {
   Map<String, String> _clientStatus = {};
   bool _isLoading = true;
   String _selectedDirection = 'AM';
+  TripService? _tripService;
+  AttendanceService? _attendanceService;
 
   @override
   void initState() {
@@ -44,6 +48,63 @@ class _DriverHomePageState extends State<DriverHomePage> {
         DebugLogger.warn('Widget not mounted, skipping _loadTrip()');
       }
     });
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Listen to TripService and AttendanceService changes to refresh status
+    _tripService = Provider.of<TripService>(context, listen: false);
+    _attendanceService = Provider.of<AttendanceService>(context, listen: false);
+    
+    // Remove existing listeners first to avoid duplicates
+    _tripService?.removeListener(_onTripServiceChanged);
+    _attendanceService?.removeListener(_onAttendanceServiceChanged);
+    
+    // Add listeners to refresh when stops/attendance change
+    _tripService?.addListener(_onTripServiceChanged);
+    _attendanceService?.addListener(_onAttendanceServiceChanged);
+  }
+
+  @override
+  void dispose() {
+    // Remove listeners
+    _tripService?.removeListener(_onTripServiceChanged);
+    _attendanceService?.removeListener(_onAttendanceServiceChanged);
+    super.dispose();
+  }
+
+  void _onTripServiceChanged() {
+    if (mounted && _todayTrip != null && _assignedClients.isNotEmpty) {
+      _refreshClientStatus();
+    }
+  }
+
+  void _onAttendanceServiceChanged() {
+    // When attendance is deleted, refresh client status
+    if (mounted && _todayTrip != null && _assignedClients.isNotEmpty) {
+      _refreshClientStatus();
+    }
+  }
+
+  Future<void> _refreshClientStatus() async {
+    if (_todayTrip == null || _assignedClients.isEmpty) return;
+    
+    try {
+      final tripService = Provider.of<TripService>(context, listen: false);
+      final updatedStatus = await tripService.getClientStatus(
+        tripId: _todayTrip!.id!,
+        clients: _assignedClients,
+      );
+      if (mounted) {
+        setState(() {
+          _clientStatus = updatedStatus;
+        });
+        DebugLogger.log('🔄 Client status refreshed: ${_clientStatus.length} clients');
+      }
+    } catch (e, stackTrace) {
+      DebugLogger.error('Error refreshing client status', e, stackTrace);
+    }
   }
 
   Future<void> _loadTrip() async {
@@ -219,7 +280,7 @@ class _DriverHomePageState extends State<DriverHomePage> {
       builder: (BuildContext context) {
         return AlertDialog(
           title: const Text('Logout'),
-          content: const Text('Are you sure you want to logout? This will end your current session.'),
+          content: const Text('Are you sure you want to logout? All pending data will be synced before logging out.'),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(false),
@@ -245,6 +306,52 @@ class _DriverHomePageState extends State<DriverHomePage> {
   /// Perform logout
   Future<void> _logout() async {
     try {
+      // Sync all pending items before logout
+      if (mounted) {
+        final syncService = Provider.of<OfflineSyncService>(context, listen: false);
+        syncService.setContext(context);
+        
+        // Show syncing message
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Row(
+              children: [
+                SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+                SizedBox(width: 12),
+                Text('Syncing data before logout...'),
+              ],
+            ),
+            duration: Duration(seconds: 30), // Long duration in case sync takes time
+          ),
+        );
+        
+        try {
+          final syncResult = await syncService.syncAll();
+          if (mounted) {
+            ScaffoldMessenger.of(context).hideCurrentSnackBar();
+            if (syncResult.success && syncResult.successCount > 0) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('✅ Synced ${syncResult.successCount} item${syncResult.successCount != 1 ? 's' : ''} before logout'),
+                  backgroundColor: Colors.green,
+                  duration: const Duration(seconds: 2),
+                ),
+              );
+            }
+          }
+        } catch (e) {
+          DebugLogger.error('Error syncing before logout', e, null);
+          // Continue with logout even if sync fails
+          if (mounted) {
+            ScaffoldMessenger.of(context).hideCurrentSnackBar();
+          }
+        }
+      }
+      
       // Clear FileMaker session (if available)
       try {
         if (mounted) {
@@ -328,6 +435,51 @@ class _DriverHomePageState extends State<DriverHomePage> {
               }
             },
             tooltip: 'View Trip Sheet',
+          ),
+          IconButton(
+            icon: const Icon(Icons.sync),
+            onPressed: () async {
+              final syncService = Provider.of<OfflineSyncService>(context, listen: false);
+              syncService.setContext(context);
+              
+              // Show loading indicator
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Row(
+                      children: [
+                        SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                        SizedBox(width: 12),
+                        Text('Syncing...'),
+                      ],
+                    ),
+                    duration: Duration(seconds: 2),
+                  ),
+                );
+              }
+              
+              final result = await syncService.syncAll();
+              
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      result.success
+                          ? '✅ Synced ${result.successCount} item${result.successCount != 1 ? 's' : ''}${result.failureCount > 0 ? ' (${result.failureCount} failed)' : ''}'
+                          : '❌ Sync failed: ${result.error ?? "Unknown error"}',
+                    ),
+                    backgroundColor: result.success ? Colors.green : Colors.red,
+                    duration: const Duration(seconds: 3),
+                  ),
+                );
+              }
+            },
+            tooltip: 'Sync Now',
           ),
           IconButton(
             icon: const Icon(Icons.logout),

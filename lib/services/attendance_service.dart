@@ -230,6 +230,7 @@ class AttendanceService extends ChangeNotifier {
   }
 
   /// Delete attendance record
+  /// Also deletes related stops for the client to reset their status
   Future<void> deleteAttendance(String attendanceId) async {
     // Get attendance before deleting (for sync if needed)
     final query = _database.select(_database.attendances)
@@ -240,8 +241,38 @@ class AttendanceService extends ChangeNotifier {
       throw Exception('Attendance record not found');
     }
 
+    final clientId = existing.clientId;
+
     // Delete from database
     await (_database.delete(_database.attendances)..where((a) => a.id.equals(attendanceId))).go();
+
+    // Delete related stops for this client from today's trips to reset status
+    // Find all stops for this client in today's trips (AM and PM)
+    final today = DateTime.now();
+    final startOfDay = DateTime(today.year, today.month, today.day);
+    final endOfDay = startOfDay.add(const Duration(days: 1));
+    
+    // Find today's trips
+    final tripsQuery = _database.select(_database.trips)
+      ..where((t) => 
+        t.date.isBiggerOrEqualValue(startOfDay) &
+        t.date.isSmallerThanValue(endOfDay)
+      );
+    final todayTrips = await tripsQuery.get();
+    
+    // Delete all stops for this client from today's trips
+    for (final trip in todayTrips) {
+      final stopsQuery = _database.select(_database.stops)
+        ..where((s) => 
+          s.tripId.equals(trip.id) &
+          s.clientId.equals(clientId)
+        );
+      final clientStops = await stopsQuery.get();
+      
+      for (final stop in clientStops) {
+        await (_database.delete(_database.stops)..where((s) => s.id.equals(stop.id))).go();
+      }
+    }
 
     // Note: We don't queue delete operations for sync as FileMaker doesn't support soft deletes
     // If you need to track deletions, you could add a 'deleted' flag instead

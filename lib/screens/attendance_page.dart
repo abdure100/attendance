@@ -9,7 +9,9 @@ import '../models/staff.dart';
 import '../services/attendance_service.dart';
 import '../services/filemaker_service.dart';
 import '../services/auth_service.dart';
+import '../services/offline_sync_service.dart';
 import '../utils/debug_logger.dart';
+import '../widgets/sync_banner.dart';
 
 /// Attendance screen for center staff to record time-in/out
 class AttendancePage extends StatefulWidget {
@@ -172,7 +174,7 @@ class _AttendancePageState extends State<AttendancePage> {
       builder: (BuildContext context) {
         return AlertDialog(
           title: const Text('Logout'),
-          content: const Text('Are you sure you want to logout? This will end your current session.'),
+          content: const Text('Are you sure you want to logout? All pending data will be synced before logging out.'),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(false),
@@ -198,6 +200,52 @@ class _AttendancePageState extends State<AttendancePage> {
   /// Perform logout
   Future<void> _logout() async {
     try {
+      // Sync all pending items before logout
+      if (mounted) {
+        final syncService = Provider.of<OfflineSyncService>(context, listen: false);
+        syncService.setContext(context);
+        
+        // Show syncing message
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Row(
+              children: [
+                SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+                SizedBox(width: 12),
+                Text('Syncing data before logout...'),
+              ],
+            ),
+            duration: Duration(seconds: 30), // Long duration in case sync takes time
+          ),
+        );
+        
+        try {
+          final syncResult = await syncService.syncAll();
+          if (mounted) {
+            ScaffoldMessenger.of(context).hideCurrentSnackBar();
+            if (syncResult.success && syncResult.successCount > 0) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('✅ Synced ${syncResult.successCount} item${syncResult.successCount != 1 ? 's' : ''} before logout'),
+                  backgroundColor: Colors.green,
+                  duration: const Duration(seconds: 2),
+                ),
+              );
+            }
+          }
+        } catch (e) {
+          DebugLogger.error('Error syncing before logout', e, null);
+          // Continue with logout even if sync fails
+          if (mounted) {
+            ScaffoldMessenger.of(context).hideCurrentSnackBar();
+          }
+        }
+      }
+      
       // Clear FileMaker session (if available)
       try {
         if (mounted) {
@@ -217,7 +265,7 @@ class _AttendancePageState extends State<AttendancePage> {
         // Continue with logout even if AuthService logout fails
       }
     } catch (e) {
-      DebugLogger.error('Logout error', e);
+      DebugLogger.error('Logout error', e, null);
     } finally {
       // Always navigate back to login page, even if logout fails
       if (mounted) {
@@ -266,6 +314,51 @@ class _AttendancePageState extends State<AttendancePage> {
               tooltip: 'Switch to Driver Route',
             ),
           IconButton(
+            icon: const Icon(Icons.sync),
+            onPressed: () async {
+              final syncService = Provider.of<OfflineSyncService>(context, listen: false);
+              syncService.setContext(context);
+              
+              // Show loading indicator
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Row(
+                      children: [
+                        SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                        SizedBox(width: 12),
+                        Text('Syncing...'),
+                      ],
+                    ),
+                    duration: Duration(seconds: 2),
+                  ),
+                );
+              }
+              
+              final result = await syncService.syncAll();
+              
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      result.success
+                          ? '✅ Synced ${result.successCount} item${result.successCount != 1 ? 's' : ''}${result.failureCount > 0 ? ' (${result.failureCount} failed)' : ''}'
+                          : '❌ Sync failed: ${result.error ?? "Unknown error"}',
+                    ),
+                    backgroundColor: result.success ? Colors.green : Colors.red,
+                    duration: const Duration(seconds: 3),
+                  ),
+                );
+              }
+            },
+            tooltip: 'Sync Now',
+          ),
+          IconButton(
             icon: const Icon(Icons.logout),
             onPressed: _showLogoutDialog,
             tooltip: 'Logout',
@@ -274,6 +367,7 @@ class _AttendancePageState extends State<AttendancePage> {
       ),
       body: Column(
         children: [
+          const SyncBanner(),
           // Search bar
           Padding(
             padding: const EdgeInsets.all(16),
@@ -341,19 +435,7 @@ class _AttendancePageState extends State<AttendancePage> {
                                         color: Colors.blue,
                                         onPressed: () => _handleTimeIn(client),
                                         tooltip: 'Time In',
-                                      )
-                                    else ...[
-                                      IconButton(
-                                        icon: const Icon(Icons.edit, size: 20),
-                                        onPressed: () => _showEditAttendanceDialog(client, attendance),
-                                        tooltip: 'Edit',
                                       ),
-                                      IconButton(
-                                        icon: const Icon(Icons.delete, size: 20, color: Colors.red),
-                                        onPressed: () => _showDeleteAttendanceDialog(client, attendance),
-                                        tooltip: 'Delete',
-                                      ),
-                                    ],
                                     if (attendance != null &&
                                         attendance.timeIn != null &&
                                         attendance.timeOut == null)
@@ -363,6 +445,22 @@ class _AttendancePageState extends State<AttendancePage> {
                                         onPressed: () => _handleTimeOut(client),
                                         tooltip: 'Time Out',
                                       ),
+                                    // Delete button always visible on each row
+                                    IconButton(
+                                      icon: Icon(
+                                        Icons.delete,
+                                        size: 20,
+                                        color: attendance != null && attendance.timeIn != null
+                                            ? Colors.red
+                                            : Colors.grey,
+                                      ),
+                                      onPressed: attendance != null && attendance.timeIn != null
+                                          ? () => _showDeleteAttendanceDialog(client, attendance)
+                                          : null,
+                                      tooltip: attendance != null && attendance.timeIn != null
+                                          ? 'Delete'
+                                          : 'No attendance to delete',
+                                    ),
                                   ],
                                 ),
                               ),
@@ -534,12 +632,16 @@ class _AttendancePageState extends State<AttendancePage> {
     if (result == true && mounted) {
       try {
         final attendanceService = Provider.of<AttendanceService>(context, listen: false);
+        
+        // Delete attendance (this also deletes related stops for the client)
+        // This will reset the client status to "Not picked" in the driver route
         await attendanceService.deleteAttendance(attendance.id!);
+        
         await _loadData();
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('Attendance deleted'),
+              content: Text('Attendance deleted and client status reset'),
               backgroundColor: Colors.green,
             ),
           );

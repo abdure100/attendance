@@ -149,11 +149,18 @@ class TripService extends ChangeNotifier {
     // Reverse geocode
     String? address;
     try {
-      DebugLogger.log('🌍 Reverse geocoding address...');
+      DebugLogger.log('🌍 Reverse geocoding address for lat=$lat, lng=$lng...');
       address = await LocationService.reverseGeocode(lat, lng);
-      DebugLogger.success('✅ Address: $address');
-    } catch (e) {
+      if (address != null && address.isNotEmpty) {
+        DebugLogger.success('✅ Address: $address');
+      } else {
+        DebugLogger.warn('⚠️ Reverse geocoding returned null or empty address');
+        DebugLogger.log('This is okay - address is optional and can be backfilled later');
+      }
+    } catch (e, stackTrace) {
       DebugLogger.warn('Could not reverse geocode: $e');
+      DebugLogger.log('Stack trace: $stackTrace');
+      DebugLogger.log('Continuing anyway - address is optional and can be backfilled on sync');
       // Continue anyway - address can be backfilled on sync
     }
 

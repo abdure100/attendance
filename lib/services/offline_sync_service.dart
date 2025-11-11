@@ -85,12 +85,30 @@ class OfflineSyncService extends ChangeNotifier {
     DebugLogger.info('✅ Online, checking for pending items...');
 
     // Get all unsynced items
+    // Order by entity type first (trips before stops, stops before attendance)
+    // Then by createdAt to maintain chronological order within each type
     final query = _database.select(_database.outboxes)
-      ..where((o) => o.synced.equals(false))
-      ..orderBy([(o) => OrderingTerm(expression: o.createdAt, mode: OrderingMode.asc)]);
+      ..where((o) => o.synced.equals(false));
     
-    final items = await query.get();
+    final allItems = await query.get();
+    
+    // Sort manually to ensure trips sync before stops, stops before attendance
+    final items = allItems.toList()..sort((a, b) {
+      // Define priority: trip = 1, stop = 2, attendance = 3
+      final priorityA = a.entity == 'trip' ? 1 : (a.entity == 'stop' ? 2 : 3);
+      final priorityB = b.entity == 'trip' ? 1 : (b.entity == 'stop' ? 2 : 3);
+      
+      // First sort by entity priority
+      if (priorityA != priorityB) {
+        return priorityA.compareTo(priorityB);
+      }
+      
+      // Then sort by createdAt within same entity type
+      return a.createdAt.compareTo(b.createdAt);
+    });
+    
     DebugLogger.info('📦 Found ${items.length} pending items to sync');
+    DebugLogger.log('Sync order: ${items.map((i) => '${i.entity}(${i.op})').join(', ')}');
     
     if (items.isEmpty) {
       DebugLogger.info('✅ No items to sync');
@@ -196,32 +214,83 @@ class OfflineSyncService extends ChangeNotifier {
         fieldData.remove('PrimaryKey');
       }
       
-            // Format date for FileMaker - try date only first (MM/DD/YYYY)
-            // If FileMaker requires timestamp, we'll add it
+            // Format date for FileMaker
+            // FileMaker date fields may require MM/DD/YYYY format based on field settings
+            // Try MM/DD/YYYY first (common FileMaker format), fallback to ISO if needed
             if (fieldData['date'] != null) {
               final date = trip.date;
-              // Format as MM/DD/YYYY (date only, no time)
-              // FileMaker date fields typically don't include time unless it's a timestamp field
+              // Format as MM/DD/YYYY (FileMaker's common date format)
               fieldData['date'] = '${date.month.toString().padLeft(2, '0')}/${date.day.toString().padLeft(2, '0')}/${date.year}';
+              DebugLogger.log('Formatted date for FileMaker: ${fieldData['date']} (MM/DD/YYYY from $date)');
+              
+              // Check if date is in the future (FileMaker validation might reject future dates)
+              final now = DateTime.now();
+              final today = DateTime(now.year, now.month, now.day);
+              final tripDate = DateTime(date.year, date.month, date.day);
+              if (tripDate.isAfter(today)) {
+                DebugLogger.warn('⚠️ Trip date is in the future: ${fieldData['date']}');
+                DebugLogger.warn('FileMaker validation may reject future dates. Check FileMaker field validation rules.');
+              }
             }
       
       // Remove only FileMaker-managed timestamp fields (these are auto-managed by FileMaker)
-      // All other fields (including createdAt) can be written from frontend
+      // FileMaker auto-generates CreationTimestamp, so we don't use createdAt
       fieldData.remove('CreationTimestamp');
       fieldData.remove('ModificationTimestamp');
+      if (op == 'create') {
+        fieldData.remove('createdAt'); // Remove createdAt - FileMaker uses CreationTimestamp instead (auto-generated)
+      }
       
       // Remove null values - FileMaker doesn't accept null
       fieldData.removeWhere((key, value) => value == null);
       
       DebugLogger.log('Trip fieldData: $fieldData');
+      DebugLogger.log('Trip fieldData keys: ${fieldData.keys.toList()}');
+      DebugLogger.log('Trip fieldData values: ${fieldData.values.map((v) => v?.toString()).toList()}');
+      DebugLogger.log('Date field value: ${fieldData['date']} (type: ${fieldData['date']?.runtimeType})');
       
       if (op == 'create') {
         DebugLogger.info('Creating trip: ${trip.id}');
-        final recordId = await fileMakerService.createRecord('api_trips', fieldData);
+        DebugLogger.log('Trip details: date=${trip.date}, driverId=${trip.driverId}, direction=${trip.direction}, status=${trip.status}');
+        DebugLogger.log('Sending to FileMaker layout: api_trips');
+        DebugLogger.log('Field names being sent: ${fieldData.keys.join(", ")}');
+        var recordId = await fileMakerService.createRecord('api_trips', fieldData);
+        
+        // If regular creation fails, try manual method as fallback
+        if (recordId == null) {
+          DebugLogger.warn('⚠️ Regular trip creation failed, trying manual method as fallback...');
+          try {
+            final manualResult = await fileMakerService.manualCreateTrip(
+              driverId: trip.driverId,
+              direction: trip.direction,
+              date: fieldData['date'] as String?,
+              status: trip.status ?? 'pending',
+            );
+            if (manualResult['success'] == true) {
+              recordId = manualResult['recordId']?.toString();
+              DebugLogger.success('✅ Manual trip creation succeeded! RecordId: $recordId');
+            } else {
+              DebugLogger.error('❌ Manual trip creation also failed: ${manualResult['error']}', null);
+            }
+          } catch (e, stackTrace) {
+            DebugLogger.error('Error in manual trip creation fallback', e, stackTrace);
+          }
+        }
+        
         if (recordId != null) {
-          DebugLogger.success('Trip created with recordId: $recordId');
+          DebugLogger.success('✅ Trip created successfully in FileMaker with recordId: $recordId');
+          DebugLogger.log('Trip PrimaryKey: ${trip.id}, FileMaker recordId: $recordId');
         } else {
-          DebugLogger.error('Trip creation returned null recordId', null);
+          DebugLogger.error('❌ Trip creation returned null recordId', null);
+          DebugLogger.log('This usually means FileMaker rejected the record. Check:');
+          DebugLogger.log('1. Does the api_trips layout exist?');
+          DebugLogger.log('2. Is the "date" field on the api_trips layout? (case-sensitive: lowercase "date")');
+          DebugLogger.log('3. Is the "date" field type set to Text (not Date)?');
+          DebugLogger.log('4. Are there any script triggers (OnRecordCommit, OnRecordCreate) that might be validating?');
+          DebugLogger.log('5. Do all field names match exactly? (case-sensitive)');
+          DebugLogger.log('6. Check FileMaker Data API error logs for specific validation errors');
+          DebugLogger.log('7. Try creating a record manually in FileMaker with the same data to see if it works');
+          DebugLogger.log('8. Verify the field name is exactly "date" (lowercase) in FileMaker');
         }
         return recordId != null;
       } else if (op == 'update' && trip.id != null) {
@@ -278,22 +347,80 @@ class OfflineSyncService extends ChangeNotifier {
       }
       
       // Remove only FileMaker-managed timestamp fields (these are auto-managed by FileMaker)
-      // All other fields (including createdAt) can be written from frontend
+      // FileMaker auto-generates CreationTimestamp, so we don't use createdAt
       fieldData.remove('CreationTimestamp');
       fieldData.remove('ModificationTimestamp');
+      if (op == 'create') {
+        fieldData.remove('createdAt'); // Remove createdAt - FileMaker uses CreationTimestamp instead (auto-generated)
+      }
       
       // Remove null values - FileMaker doesn't accept null
       fieldData.removeWhere((key, value) => value == null);
       
       DebugLogger.log('Stop fieldData: $fieldData');
+      DebugLogger.log('Stop fieldData keys: ${fieldData.keys.toList()}');
+      DebugLogger.log('Stop fieldData values: ${fieldData.values.map((v) => v?.toString().substring(0, v.toString().length > 50 ? 50 : v.toString().length)).toList()}');
       
       if (op == 'create') {
         DebugLogger.info('Creating stop: ${stop.id}');
+        DebugLogger.log('Stop details: tripId=${stop.tripId}, clientId=${stop.clientId}, kind=${stop.kind}, status=${stop.status}');
+        
+        // Ensure the trip exists in FileMaker before creating the stop
+        DebugLogger.log('🔍 Checking if trip exists in FileMaker: ${stop.tripId}');
+        final tripRecordId = await fileMakerService.findRecordIdByPrimaryKey('api_trips', stop.tripId);
+        
+        if (tripRecordId == null) {
+          DebugLogger.warn('⚠️ Trip ${stop.tripId} not found in FileMaker. Attempting to sync trip first...');
+          
+          // Try to find the trip in local database and sync it
+          try {
+            final tripQuery = _database.select(_database.trips)
+              ..where((t) => t.id.equals(stop.tripId));
+              final tripData = await tripQuery.getSingleOrNull();
+              
+              if (tripData != null) {
+                DebugLogger.log('📦 Found trip in local database, syncing it now...');
+                final trip = models.Trip(
+                  id: tripData.id,
+                  date: tripData.date,
+                  routeName: tripData.routeName,
+                  driverId: tripData.driverId,
+                  vehicleId: tripData.vehicleId,
+                  direction: tripData.direction,
+                  status: tripData.status,
+                  createdAt: tripData.createdAt,
+                );
+                
+                // Sync the trip first
+                final tripSyncPayload = SyncHelpers.prepareTripForSync(trip);
+                final tripSynced = await _syncTrip(tripSyncPayload, 'create');
+                
+                if (tripSynced) {
+                  DebugLogger.success('✅ Trip synced successfully, proceeding with stop creation');
+                } else {
+                  DebugLogger.error('❌ Failed to sync trip. Stop creation may fail if FileMaker enforces trip relationship.', null);
+                }
+              } else {
+                DebugLogger.error('❌ Trip ${stop.tripId} not found in local database either. Stop may fail to sync.', null);
+              }
+            } catch (e, stackTrace) {
+              DebugLogger.error('Error syncing trip before stop', e, stackTrace);
+            }
+        } else {
+          DebugLogger.log('✅ Trip exists in FileMaker (recordId: $tripRecordId)');
+        }
+        
         final recordId = await fileMakerService.createRecord('api_stops', fieldData);
         if (recordId != null) {
-          DebugLogger.success('Stop created with recordId: $recordId');
+          DebugLogger.success('✅ Stop created successfully in FileMaker with recordId: $recordId');
+          DebugLogger.log('Stop PrimaryKey: ${stop.id}, FileMaker recordId: $recordId');
         } else {
-          DebugLogger.error('Stop creation returned null recordId', null);
+          DebugLogger.error('❌ Stop creation returned null recordId', null);
+          DebugLogger.log('This usually means FileMaker rejected the record. Check:');
+          DebugLogger.log('1. Does the api_stops layout exist?');
+          DebugLogger.log('2. Do all field names match exactly?');
+          DebugLogger.log('3. Are required fields present?');
+          DebugLogger.log('4. Check FileMaker Data API error logs');
         }
         return recordId != null;
       } else if (op == 'update' && stop.id != null) {
@@ -338,19 +465,21 @@ class OfflineSyncService extends ChangeNotifier {
       final attendance = models.Attendance.fromJson(payload);
       final syncPayload = SyncHelpers.prepareAttendanceForSync(attendance);
       
-      // Remove PrimaryKey from payload for create operations
+      // Remove PrimaryKey from payload for create operations (FileMaker auto-generates it)
       final fieldData = Map<String, dynamic>.from(syncPayload);
       if (op == 'create') {
-        fieldData.remove('PrimaryKey');
+        fieldData.remove('PrimaryKey'); // FileMaker auto-generates PrimaryKey, cannot be modified
       }
       
-      // Format date for FileMaker - date only (MM/DD/YYYY)
-      // FileMaker date fields typically don't include time unless it's a timestamp field
-      if (fieldData['date'] != null) {
-        final date = attendance.date;
-        // Format as MM/DD/YYYY (date only, no time)
-        fieldData['date'] = '${date.month.toString().padLeft(2, '0')}/${date.day.toString().padLeft(2, '0')}/${date.year}';
+      // Remove date field - FileMaker will auto-generate it from CreationTimestamp
+      // FileMaker can auto-enter the date based on when the record is created
+      if (op == 'create') {
+        fieldData.remove('date'); // Let FileMaker auto-generate date from CreationTimestamp
+        DebugLogger.log('Removed date field for attendance creation - FileMaker will auto-generate it');
       }
+      // For updates, we might still need the date, but if FileMaker auto-manages it, remove it too
+      // Uncomment the line below if FileMaker auto-manages date for updates as well
+      // fieldData.remove('date');
       if (fieldData['timeIn'] != null && attendance.timeIn != null) {
         fieldData['timeIn'] = attendance.timeIn!.toIso8601String().split('.')[0];
       }
@@ -359,9 +488,12 @@ class OfflineSyncService extends ChangeNotifier {
       }
       
       // Remove only FileMaker-managed timestamp fields (these are auto-managed by FileMaker)
-      // All other fields (including createdAt) can be written from frontend
+      // FileMaker auto-generates CreationTimestamp, so we don't use createdAt
       fieldData.remove('CreationTimestamp');
       fieldData.remove('ModificationTimestamp');
+      if (op == 'create') {
+        fieldData.remove('createdAt'); // Remove createdAt - FileMaker uses CreationTimestamp instead (auto-generated)
+      }
       
       // Remove null values - FileMaker doesn't accept null
       fieldData.removeWhere((key, value) => value == null);
@@ -370,21 +502,67 @@ class OfflineSyncService extends ChangeNotifier {
       
       if (op == 'create') {
         DebugLogger.info('Creating attendance: ${attendance.id}');
-        final recordId = await fileMakerService.createRecord('api_attendances', fieldData);
+        DebugLogger.log('Attendance details: clientId=${attendance.clientId}, timeIn=${attendance.timeIn}, timeOut=${attendance.timeOut}, capturedBy=${attendance.capturedBy}');
+        DebugLogger.log('Sending to FileMaker layout: api_attendances');
+        DebugLogger.log('Field names being sent: ${fieldData.keys.join(", ")}');
+        var recordId = await fileMakerService.createRecord('api_attendances', fieldData);
+        
+        // If regular creation fails, try manual method as fallback
+        if (recordId == null) {
+          DebugLogger.warn('⚠️ Regular attendance creation failed, trying manual method as fallback...');
+          try {
+            final manualResult = await fileMakerService.manualCreateAttendance(
+              clientId: attendance.clientId,
+              capturedBy: attendance.capturedBy,
+              timeIn: attendance.timeIn?.toIso8601String().split('.')[0],
+              timeOut: attendance.timeOut?.toIso8601String().split('.')[0],
+            );
+            if (manualResult['success'] == true) {
+              recordId = manualResult['recordId']?.toString();
+              DebugLogger.success('✅ Manual attendance creation succeeded! RecordId: $recordId');
+            } else {
+              DebugLogger.error('❌ Manual attendance creation also failed: ${manualResult['error']}', null);
+            }
+          } catch (e, stackTrace) {
+            DebugLogger.error('Error in manual attendance creation fallback', e, stackTrace);
+          }
+        }
+        
         if (recordId != null) {
-          DebugLogger.success('Attendance created with recordId: $recordId');
+          DebugLogger.success('✅ Attendance created successfully in FileMaker with recordId: $recordId');
+          DebugLogger.log('Attendance PrimaryKey: ${attendance.id}, FileMaker recordId: $recordId');
         } else {
-          DebugLogger.error('Attendance creation returned null recordId', null);
+          DebugLogger.error('❌ Attendance creation returned null recordId', null);
+          DebugLogger.log('This usually means FileMaker rejected the record. Check:');
+          DebugLogger.log('1. Does the api_attendances layout exist?');
+          DebugLogger.log('2. Are all field names on the api_attendances layout? (case-sensitive)');
+          DebugLogger.log('3. Is the date field set to auto-enter from CreationTimestamp?');
+          DebugLogger.log('4. Are there any script triggers that might be validating?');
+          DebugLogger.log('5. Do all field names match exactly? (case-sensitive)');
+          DebugLogger.log('6. Check FileMaker Data API error logs for specific validation errors');
         }
         return recordId != null;
       } else if (op == 'update' && attendance.id != null) {
         DebugLogger.info('Updating attendance: ${attendance.id}');
-        // For updates, we need to find the FileMaker recordId by PrimaryKey first
-        // because attendance.id is a string PrimaryKey, not a numeric recordId
+        // For updates, find the record by clientId + timeIn since FileMaker auto-generates PrimaryKey
+        // This is more reliable than using PrimaryKey which FileMaker may have auto-generated differently
         try {
-          final recordId = await fileMakerService.findRecordIdByPrimaryKey('api_attendances', attendance.id!);
+          String? recordId;
+          
+          // First try to find by PrimaryKey (in case FileMaker accepted our PrimaryKey)
+          recordId = await fileMakerService.findRecordIdByPrimaryKey('api_attendances', attendance.id!);
+          
+          // If not found by PrimaryKey, try finding by clientId + timeIn
+          if (recordId == null && attendance.timeIn != null) {
+            final timeInStr = attendance.timeIn!.toIso8601String().split('.')[0];
+            recordId = await fileMakerService.findAttendanceRecordId(attendance.clientId, timeInStr);
+          }
+          
           if (recordId != null) {
-            DebugLogger.log('Found FileMaker recordId: $recordId for PrimaryKey: ${attendance.id}');
+            DebugLogger.log('Found FileMaker recordId: $recordId for attendance: ${attendance.id}');
+            // Remove fields that FileMaker auto-manages or cannot be modified
+            fieldData.remove('PrimaryKey'); // FileMaker auto-generates PrimaryKey, cannot be modified
+            fieldData.remove('date'); // FileMaker auto-generates date from CreationTimestamp
             final success = await fileMakerService.updateRecord('api_attendances', recordId, fieldData);
             if (success) {
               DebugLogger.success('Attendance updated successfully');
@@ -393,7 +571,7 @@ class OfflineSyncService extends ChangeNotifier {
             }
             return success;
           } else {
-            DebugLogger.error('Could not find attendance record with PrimaryKey: ${attendance.id}', null);
+            DebugLogger.error('Could not find attendance record with PrimaryKey: ${attendance.id} or clientId: ${attendance.clientId}, timeIn: ${attendance.timeIn}', null);
             return false;
           }
         } catch (e, stackTrace) {
