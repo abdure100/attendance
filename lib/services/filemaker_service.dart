@@ -18,7 +18,7 @@ import 'token_service.dart';
 
 class FileMakerService extends ChangeNotifier {
   static String get baseUrl => AppConfig.baseUrl;
-  static const String database = AppConfig.database;
+  static String get database => AppConfig.database;
   static String? get username => AppConfig.username;
   static String? get password => AppConfig.password;
   

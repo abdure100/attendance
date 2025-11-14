@@ -33,6 +33,9 @@ dependencies:
   sqflite: ^2.3.0
   path_provider: ^2.1.1
   
+  # Environment variables
+  flutter_dotenv: ^5.1.0
+  
   # Location & Geocoding
   geolocator: ^11.0.0
   geocoding: ^3.0.0
@@ -71,3 +74,4 @@ flutter:
 
   assets:
     - assets/images/
+    - .env
