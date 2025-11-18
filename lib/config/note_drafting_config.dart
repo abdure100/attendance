@@ -1,3 +1,5 @@
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+
 /// Configuration for the Note Drafting Service
 class NoteDraftingConfig {
   // API Configuration
@@ -6,13 +8,15 @@ class NoteDraftingConfig {
   static const double temperature = 0.3;
   static const int maxTokens = 500;
   
-  // Optional: Add your API key here
-  // For production, consider using environment variables or secure storage
-  static const String apiKey = 'ca4d912f0e81d40a50293afdd7547fe604937bf638e4cad6eba69527d5810289'; // Set to your API key if needed
+  // API Key loaded from .env file
+  // Set NOTE_DRAFTING_API_KEY in your .env file
+  static String? get apiKey => dotenv.env['NOTE_DRAFTING_API_KEY'];
   
   // Alternative API configurations
   static const String openaiApiUrl = 'https://api.openai.com/v1/chat/completions';
-  static const String? openaiApiKey = null; // Set to your OpenAI API key if needed
+  // OpenAI API Key loaded from .env file
+  // Set OPENAI_API_KEY in your .env file
+  static String? get openaiApiKey => dotenv.env['OPENAI_API_KEY'];
   
   // Default RAG context for note generation
   static const String defaultRagContext = '''
@@ -35,8 +39,8 @@ You are a clinical documentation assistant for a behavioral health / ABA EMR.
   
   // Get API key (checks multiple sources)
   static String? getApiKey() {
-    // First check if apiKey is set
-    if (apiKey.isNotEmpty) {
+    // First check if apiKey is set from .env
+    if (apiKey != null && apiKey!.isNotEmpty) {
       return apiKey;
     }
     

@@ -15,7 +15,16 @@
             
             try {
                 // Test authentication
-                const credentials = btoa('fmapi:Sphere321$');
+                // ⚠️ WARNING: Do not hardcode credentials in production!
+                // This is a test file only. In production, use environment variables.
+                // For actual testing, update these values or use a secure method to load credentials.
+                const username = prompt('Enter FileMaker username:', 'fmapi') || 'fmapi';
+                const password = prompt('Enter FileMaker password:', '') || '';
+                if (!password) {
+                    resultDiv.innerHTML = '<p style="color: red;">❌ Password is required</p>';
+                    return;
+                }
+                const credentials = btoa(`${username}:${password}`);
                 const response = await fetch('https://devdb.sphereemr.com/fmi/data/v1/databases/EIDBI/sessions', {
                     method: 'POST',
                     headers: {
