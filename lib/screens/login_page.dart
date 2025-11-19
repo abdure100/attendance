@@ -351,49 +351,49 @@ class _LoginPageState extends State<LoginPage> {
                       ),
                       const SizedBox(height: 24),
 
-                      // Quick Login Buttons
-                      Row(
-                        children: [
-                          Expanded(
-                            child: OutlinedButton(
-                              onPressed: _isLoading ? null : () {
-                                _usernameController.text = 'sacdiya@sphereemr.com';
-                                _passwordController.text = 'Welcome123\$';
-                              },
-                              style: OutlinedButton.styleFrom(
-                                padding: const EdgeInsets.symmetric(vertical: 12),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                              ),
-                              child: const Text(
-                                'Sacdiya - Staff',
-                                style: TextStyle(fontSize: 14),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: OutlinedButton(
-                              onPressed: _isLoading ? null : () {
-                                _usernameController.text = 'aisha@sphereemr.com';
-                                _passwordController.text = 'Welcome123\$';
-                              },
-                              style: OutlinedButton.styleFrom(
-                                padding: const EdgeInsets.symmetric(vertical: 12),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                              ),
-                              child: const Text(
-                                'Aisha - Driver',
-                                style: TextStyle(fontSize: 14),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
+                      // Quick Login Buttons - Hidden
+                      // Row(
+                      //   children: [
+                      //     Expanded(
+                      //       child: OutlinedButton(
+                      //         onPressed: _isLoading ? null : () {
+                      //           _usernameController.text = 'sacdiya@sphereemr.com';
+                      //           _passwordController.text = 'Welcome123\$';
+                      //         },
+                      //         style: OutlinedButton.styleFrom(
+                      //           padding: const EdgeInsets.symmetric(vertical: 12),
+                      //           shape: RoundedRectangleBorder(
+                      //             borderRadius: BorderRadius.circular(8),
+                      //           ),
+                      //         ),
+                      //         child: const Text(
+                      //           'Sacdiya - Staff',
+                      //           style: TextStyle(fontSize: 14),
+                      //         ),
+                      //       ),
+                      //     ),
+                      //     const SizedBox(width: 12),
+                      //     Expanded(
+                      //       child: OutlinedButton(
+                      //         onPressed: _isLoading ? null : () {
+                      //           _usernameController.text = 'aisha@sphereemr.com';
+                      //           _passwordController.text = 'Welcome123\$';
+                      //         },
+                      //         style: OutlinedButton.styleFrom(
+                      //           padding: const EdgeInsets.symmetric(vertical: 12),
+                      //           shape: RoundedRectangleBorder(
+                      //             borderRadius: BorderRadius.circular(8),
+                      //           ),
+                      //         ),
+                      //         child: const Text(
+                      //           'Aisha - Driver',
+                      //           style: TextStyle(fontSize: 14),
+                      //         ),
+                      //       ),
+                      //     ),
+                      //   ],
+                      // ),
+                      // const SizedBox(height: 16),
 
                       // Login Button
                       SizedBox(
