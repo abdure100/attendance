@@ -44,6 +44,9 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 
+# iOS build artifacts
+ios/build/
+
 # Configuration files with sensitive data
 lib/config/app_config.dart
 .env

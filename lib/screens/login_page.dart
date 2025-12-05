@@ -4,6 +4,7 @@ import '../services/filemaker_service.dart';
 import '../services/auth_service.dart';
 import '../utils/debug_logger.dart';
 import '../models/staff.dart';
+import '../config/app_config.dart';
 import 'driver_home_page.dart';
 
 class LoginPage extends StatefulWidget {
@@ -46,13 +47,16 @@ class _LoginPageState extends State<LoginPage> {
       final fileMakerService = Provider.of<FileMakerService>(context, listen: false);
       
       // Step 1: Authenticate with FileMaker to get access
+      DebugLogger.log('🔍 LOGIN: Step 1 - Authenticating with FileMaker...');
+      DebugLogger.log('🔍 LOGIN: Database: ${AppConfig.database}, BaseURL: ${AppConfig.baseUrl}');
       await fileMakerService.authenticate();
       
       // Small delay to ensure token is fully set
       await Future.delayed(const Duration(milliseconds: 100));
       
       // Step 2: Validate user credentials against staff table
-      DebugLogger.log('🔍 LOGIN: Looking up staff with email: $email');
+      DebugLogger.log('🔍 LOGIN: Step 2 - Looking up staff with email: $email');
+      DebugLogger.log('🔍 LOGIN: Using database: ${FileMakerService.database}');
       final staff = await fileMakerService.getStaffByEmail(email);
       
       if (staff == null) {
@@ -85,7 +89,7 @@ class _LoginPageState extends State<LoginPage> {
           final sanctumToken = await AuthService.exchangeFileMakerToken(
             filemakerToken: fileMakerToken,
             email: email,
-            database: 'EIDBI',
+            database: AppConfig.database,
           );
           
           if (sanctumToken != null) {
@@ -169,10 +173,25 @@ class _LoginPageState extends State<LoginPage> {
     } catch (e, stackTrace) {
       DebugLogger.error('Exception in _login()', e, stackTrace);
       if (mounted) {
+        // Show more detailed error message
+        String errorMessage = 'Login failed';
+        if (e.toString().contains('User not found')) {
+          errorMessage = 'User not found. Please check your email address.';
+        } else if (e.toString().contains('Invalid password')) {
+          errorMessage = 'Invalid password. Please try again.';
+        } else if (e.toString().contains('Account is inactive')) {
+          errorMessage = 'Your account is inactive. Please contact your administrator.';
+        } else if (e.toString().contains('FileMaker')) {
+          errorMessage = 'Database connection error: ${e.toString()}';
+        } else {
+          errorMessage = 'Login failed: ${e.toString()}';
+        }
+        
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Login failed: $e'),
+            content: Text(errorMessage),
             backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
           ),
         );
       }
@@ -180,6 +199,39 @@ class _LoginPageState extends State<LoginPage> {
       if (mounted) {
         setState(() => _isLoading = false);
       }
+    }
+  }
+
+  /// Generate random test credentials
+  void _generateTestCredentials() {
+    // List of test users
+    final testUsers = [
+      {'email': 'test@sphereemr.com', 'password': 'Test123\$'},
+      {'email': 'admin@sphereemr.com', 'password': 'Admin123\$'},
+      {'email': 'driver@sphereemr.com', 'password': 'Driver123\$'},
+      {'email': 'staff@sphereemr.com', 'password': 'Staff123\$'},
+      {'email': 'user@sphereemr.com', 'password': 'User123\$'},
+      {'email': 'demo@sphereemr.com', 'password': 'Demo123\$'},
+    ];
+    
+    // Pick a random test user
+    final random = DateTime.now().millisecondsSinceEpoch % testUsers.length;
+    final selectedUser = testUsers[random];
+    
+    setState(() {
+      _usernameController.text = selectedUser['email']!;
+      _passwordController.text = selectedUser['password']!;
+    });
+    
+    // Show a snackbar with the generated credentials
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Generated: ${selectedUser['email']}'),
+          duration: const Duration(seconds: 2),
+          backgroundColor: Colors.blue,
+        ),
+      );
     }
   }
 
@@ -351,49 +403,63 @@ class _LoginPageState extends State<LoginPage> {
                       ),
                       const SizedBox(height: 24),
 
-                      // Quick Login Buttons - Hidden
-                      // Row(
-                      //   children: [
-                      //     Expanded(
-                      //       child: OutlinedButton(
-                      //         onPressed: _isLoading ? null : () {
-                      //           _usernameController.text = 'sacdiya@sphereemr.com';
-                      //           _passwordController.text = 'Welcome123\$';
-                      //         },
-                      //         style: OutlinedButton.styleFrom(
-                      //           padding: const EdgeInsets.symmetric(vertical: 12),
-                      //           shape: RoundedRectangleBorder(
-                      //             borderRadius: BorderRadius.circular(8),
-                      //           ),
-                      //         ),
-                      //         child: const Text(
-                      //           'Sacdiya - Staff',
-                      //           style: TextStyle(fontSize: 14),
-                      //         ),
-                      //       ),
-                      //     ),
-                      //     const SizedBox(width: 12),
-                      //     Expanded(
-                      //       child: OutlinedButton(
-                      //         onPressed: _isLoading ? null : () {
-                      //           _usernameController.text = 'aisha@sphereemr.com';
-                      //           _passwordController.text = 'Welcome123\$';
-                      //         },
-                      //         style: OutlinedButton.styleFrom(
-                      //           padding: const EdgeInsets.symmetric(vertical: 12),
-                      //           shape: RoundedRectangleBorder(
-                      //             borderRadius: BorderRadius.circular(8),
-                      //           ),
-                      //         ),
-                      //         child: const Text(
-                      //           'Aisha - Driver',
-                      //           style: TextStyle(fontSize: 14),
-                      //         ),
-                      //       ),
-                      //     ),
-                      //   ],
-                      // ),
-                      // const SizedBox(height: 16),
+                      // Quick Login Buttons - Test Users
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: _isLoading ? null : () {
+                                _usernameController.text = 'sacdiya@sphereemr.com';
+                                _passwordController.text = 'Welcome123\$';
+                              },
+                              style: OutlinedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(vertical: 12),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                              ),
+                              child: const Text(
+                                'Sacdiya - Staff',
+                                style: TextStyle(fontSize: 14),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: _isLoading ? null : () {
+                                _usernameController.text = 'aisha@sphereemr.com';
+                                _passwordController.text = 'Welcome123\$';
+                              },
+                              style: OutlinedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(vertical: 12),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                              ),
+                              child: const Text(
+                                'Aisha - Driver',
+                                style: TextStyle(fontSize: 14),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      
+                      // Test User Generator Button
+                      OutlinedButton.icon(
+                        onPressed: _isLoading ? null : _generateTestCredentials,
+                        icon: const Icon(Icons.shuffle, size: 18),
+                        label: const Text('Generate Test Credentials'),
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
 
                       // Login Button
                       SizedBox(

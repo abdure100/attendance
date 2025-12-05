@@ -82,8 +82,25 @@ class LocationService {
   /// Request location permission
   static Future<bool> requestLocationPermission() async {
     try {
-      final status = await Permission.location.request();
-      return status.isGranted;
+      // Request fine location (GPS) - this includes coarse location
+      final status = await Permission.locationWhenInUse.request();
+      
+      if (status.isGranted) {
+        print('✅ Location permission granted');
+        return true;
+      } else if (status.isDenied) {
+        print('⚠️ Location permission denied');
+        // Try requesting again
+        final retryStatus = await Permission.locationWhenInUse.request();
+        return retryStatus.isGranted;
+      } else if (status.isPermanentlyDenied) {
+        print('❌ Location permission permanently denied - user needs to enable in settings');
+        // Optionally open app settings
+        // await openAppSettings();
+        return false;
+      }
+      
+      return false;
     } catch (e) {
       print('❌ Error requesting location permission: $e');
       return false;

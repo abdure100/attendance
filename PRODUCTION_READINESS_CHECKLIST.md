@@ -3,10 +3,10 @@
 ## ✅ Configuration Review
 
 ### FileMaker Configuration
-- [x] **baseUrl**: `https://db.sphereemr.com/fmi/data/vLatest` - ✅ Set
-- [x] **database**: `EIDBI` - ✅ Set
-- [x] **username**: `fmapi` - ✅ Set (verify if this is production username)
-- [x] **password**: Set - ✅ Set (verify if this is production password)
+- [x] **baseUrl**: Set via `FM_BASE_URL` in `.env` (default: `https://fms.sphereemr.com/fmi/data/vLatest`) - ✅ Set
+- [x] **database**: Set via `FM_DATABASE` in `.env` (default: `EIDBI`) - ✅ Set
+- [x] **username**: Set via `FM_USERNAME` in `.env` - ✅ Set (verify if this is production username)
+- [x] **password**: Set via `FM_PASSWORD` in `.env` - ✅ Set (verify if this is production password)
 
 ### MCP API Configuration
 - [x] **mcpBaseUrl**: `https://eidbi.sphereemr.com/api` - ✅ Updated for production
@@ -43,7 +43,7 @@ There are debug print statements throughout the code. Consider:
 - Or keeping them for troubleshooting (they won't affect functionality)
 
 ### 3. Credentials Verification
-- [ ] Verify `username` and `password` in `app_config.dart` are production credentials
+- [ ] Verify `FM_USERNAME` and `FM_PASSWORD` in `.env` are production credentials
 - [ ] Verify FileMaker `baseUrl` is the production server
 - [ ] Verify MCP `apiKey` in `note_drafting_config.dart` is production key
 
@@ -108,10 +108,10 @@ AppConfig.sanctumToken = token;
 
 ### 2. Verify Production Credentials
 
-Update `lib/config/app_config.dart` if needed:
-- Confirm `baseUrl` is production FileMaker server
-- Confirm `username`/`password` are production credentials
-- Confirm `mcpBaseUrl` is correct (✅ already set)
+Update your `.env` file if needed:
+- Confirm `FM_BASE_URL` is production FileMaker server
+- Confirm `FM_USERNAME`/`FM_PASSWORD` are production credentials
+- Confirm `MCP_BASE_URL` is correct (✅ already set)
 
 ### 3. Optional: Conditional Debug Logging
 
@@ -141,7 +141,7 @@ class AppConfig {
 ## ⚠️ What Needs Attention
 
 1. ⚠️ **Sanctum token** - Must be set at runtime from secure storage
-2. ⚠️ **Verify credentials** - Confirm production username/password
+2. ⚠️ **Verify credentials** - Confirm production `FM_USERNAME` and `FM_PASSWORD` in `.env`
 3. ⚠️ **Debug logging** - Consider removing or making conditional (optional)
 
 ## 📝 Deployment Steps

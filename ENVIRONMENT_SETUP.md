@@ -6,23 +6,51 @@ This guide explains how to set up environment variables and configuration for yo
 
 ## 🎯 **Current Configuration System**
 
-Your app uses a **hardcoded configuration approach** in `lib/config/app_config.dart` instead of `.env` files.
+Your app uses **environment variables** loaded from a `.env` file. This is the secure way to handle credentials and configuration.
 
 ### **Existing Configuration Files:**
-- `lib/config/app_config.dart` - Main app configuration
-- `lib/config/note_drafting_config.dart` - Note drafting service configuration
+- `lib/config/app_config.dart` - Main app configuration (loads from .env)
+- `lib/config/note_drafting_config.dart` - Note drafting service configuration (loads from .env)
+- `.env.example` - Template for environment variables (copy to `.env` and fill in your values)
 - `lib/config/app_config.dart.template` - Template for app configuration
 
-## 🔧 **Configuration Files**
+## 🔧 **Setting Up Environment Variables**
 
-### **1. Main App Configuration (`lib/config/app_config.dart`)**
+### **Step 1: Create `.env` File**
+
+1. Copy the example file:
+   ```bash
+   cp .env.example .env
+   ```
+
+2. Edit `.env` and fill in your actual credentials:
+   ```env
+   # FileMaker API Configuration
+   FM_BASE_URL=https://fms.sphereemr.com/fmi/data/vLatest
+   FM_DATABASE=EIDBI
+   FM_USERNAME=your_filemaker_username
+   FM_PASSWORD=your_filemaker_password
+
+   # MCP API Configuration
+   MCP_BASE_URL=https://eidbi.sphereemr.com/api
+
+   # Note Drafting API Configuration
+   NOTE_DRAFTING_API_KEY=your_note_drafting_api_key
+   OPENAI_API_KEY=your_openai_api_key
+   ```
+
+### **Step 2: Configuration Files**
+
+The app automatically loads these values from `.env`:
+
+**Main App Configuration (`lib/config/app_config.dart`):**
 ```dart
 class AppConfig {
-  // FileMaker Configuration
-  static const String baseUrl = 'https://devdb.sphereemr.com/fmi/data/vLatest';
-  static const String database = 'EIDBI';
-  static const String username = 'fmapi';
-  static const String password = 'Sphere321\$';
+  // FileMaker Configuration (loaded from .env)
+  static String get baseUrl => dotenv.env['FM_BASE_URL'] ?? 'https://fms.sphereemr.com/fmi/data/vLatest';
+  static String get database => dotenv.env['FM_DATABASE'] ?? 'EIDBI';
+  static String? get username => dotenv.env['FM_USERNAME'];
+  static String? get password => dotenv.env['FM_PASSWORD'];
   
   // App Configuration
   static const String appName = 'Attendance';
@@ -34,32 +62,35 @@ class AppConfig {
 }
 ```
 
-### **2. Note Drafting Configuration (`lib/config/note_drafting_config.dart`)**
+**Note Drafting Configuration (`lib/config/note_drafting_config.dart`):**
 ```dart
 class NoteDraftingConfig {
   // API Configuration
   static const String apiUrl = 'https://arawello.ai/v1/chat/completions';
-  static const String model = 'gpt-4';
+  static const String model = 'meta-llama/Meta-Llama-3.1-8B-Instruct';
   static const double temperature = 0.3;
   static const int maxTokens = 500;
   
-  // API Keys (set these to your actual keys)
-  static const String? apiKey = null; // Set to your API key
-  static const String? openaiApiKey = null; // Set to your OpenAI key
+  // API Keys (loaded from .env file)
+  static String? get apiKey => dotenv.env['NOTE_DRAFTING_API_KEY'];
+  static String? get openaiApiKey => dotenv.env['OPENAI_API_KEY'];
 }
 ```
 
+**⚠️ Important:** Never commit your `.env` file to version control! It's already in `.gitignore`.
+
 ## 🔑 **Setting Up API Keys**
 
-### **Option 1: Edit Configuration File (Recommended)**
-1. Open `lib/config/note_drafting_config.dart`
-2. Set your API key:
-   ```dart
-   static const String? apiKey = "your-actual-api-key-here";
+### **Recommended: Use Environment Variables**
+1. Open your `.env` file
+2. Set your API keys:
+   ```env
+   NOTE_DRAFTING_API_KEY=your-actual-api-key-here
+   OPENAI_API_KEY=sk-your-openai-key-here
    ```
-3. Save the file
+3. Save the file and restart the app
 
-### **Option 2: Pass API Key at Runtime**
+### **Alternative: Pass API Key at Runtime**
 ```dart
 final noteDraft = await NoteDraftingService.generateNoteDraft(
   session: session,
@@ -100,8 +131,7 @@ This will:
 🔑 Test 2: API Key Configuration
 --------------------------------
 ⚠️  No API key configured
-   - To configure: Edit lib/config/note_drafting_config.dart
-   - Set apiKey or openaiApiKey to your API key
+   - To configure: Add NOTE_DRAFTING_API_KEY or OPENAI_API_KEY to your .env file
 
 📝 Test 3: Message Building Test
 --------------------------------
@@ -113,8 +143,8 @@ This will:
 ------------------------
 ⚠️  No API key configured, skipping API call test
    - To test API calls:
-     1. Edit lib/config/note_drafting_config.dart
-     2. Set apiKey or openaiApiKey to your API key
+     1. Add NOTE_DRAFTING_API_KEY or OPENAI_API_KEY to your .env file
+     2. Restart the app
      3. Run this test again
 
 💡 Test 5: Configuration Recommendations
@@ -127,10 +157,10 @@ This will:
    - Max Tokens: 500
 
 🔧 To configure API key:
-   1. Open lib/config/note_drafting_config.dart
-   2. Set apiKey = "your-api-key-here"
-   3. Or set openaiApiKey = "your-openai-key-here"
-   4. Save the file
+   1. Open your .env file
+   2. Add NOTE_DRAFTING_API_KEY=your-api-key-here
+   3. Or add OPENAI_API_KEY=your-openai-key-here
+   4. Save the file and restart the app
    5. Run this test again
 
 🌐 Supported APIs:
@@ -150,9 +180,9 @@ dart test_configuration.dart
 ```
 
 ### **2. Configure API Key (if needed)**
-Edit `lib/config/note_drafting_config.dart`:
-```dart
-static const String? apiKey = "your-api-key-here";
+Edit your `.env` file:
+```env
+NOTE_DRAFTING_API_KEY=your-api-key-here
 ```
 
 ### **3. Test Note Drafting**
@@ -170,57 +200,38 @@ dart example_note_drafting.dart
 ### **Using Different APIs**
 
 **OpenAI API:**
-```dart
-static const String? openaiApiKey = "sk-your-openai-key-here";
+Add to your `.env` file:
+```env
+OPENAI_API_KEY=sk-your-openai-key-here
 ```
 
 **Custom API:**
+You can modify `lib/config/note_drafting_config.dart` to use a different API URL, but API keys should still come from `.env`:
 ```dart
 static const String apiUrl = "https://your-custom-api.com/v1/chat/completions";
-static const String? apiKey = "your-custom-key";
+// API key still loaded from .env: NOTE_DRAFTING_API_KEY
 ```
-
-### **Environment Variables (Alternative)**
-
-If you want to use `.env` files, you can:
-
-1. Add `flutter_dotenv` to your `pubspec.yaml`:
-   ```yaml
-   dependencies:
-     flutter_dotenv: ^5.1.0
-   ```
-
-2. Create a `.env` file:
-   ```
-   NOTE_DRAFTING_API_KEY=your-api-key-here
-   OPENAI_API_KEY=sk-your-openai-key-here
-   ```
-
-3. Load it in your app:
-   ```dart
-   import 'package:flutter_dotenv/flutter_dotenv.dart';
-   
-   await dotenv.load(fileName: ".env");
-   final apiKey = dotenv.env['NOTE_DRAFTING_API_KEY'];
-   ```
 
 ## 📊 **Configuration Summary**
 
-| Setting | File | Purpose |
-|---------|------|---------|
-| FileMaker URL | `app_config.dart` | Database connection |
-| FileMaker Credentials | `app_config.dart` | Database authentication |
-| Note Drafting API | `note_drafting_config.dart` | AI note generation |
-| API Keys | `note_drafting_config.dart` | API authentication |
-| App Settings | `app_config.dart` | General app configuration |
+| Setting | Environment Variable | Purpose |
+|---------|---------------------|---------|
+| FileMaker URL | `FM_BASE_URL` | Database connection |
+| FileMaker Database | `FM_DATABASE` | Database name |
+| FileMaker Username | `FM_USERNAME` | Database authentication |
+| FileMaker Password | `FM_PASSWORD` | Database authentication |
+| MCP API URL | `MCP_BASE_URL` | MCP API endpoint |
+| Note Drafting API Key | `NOTE_DRAFTING_API_KEY` | AI note generation |
+| OpenAI API Key | `OPENAI_API_KEY` | Alternative AI API |
 
 ## 🔍 **Troubleshooting**
 
 ### **Common Issues**
 
 1. **"API key not configured" error**
-   - Edit `lib/config/note_drafting_config.dart`
-   - Set `apiKey` or `openaiApiKey`
+   - Check your `.env` file exists
+   - Add `NOTE_DRAFTING_API_KEY` or `OPENAI_API_KEY` to your `.env` file
+   - Make sure the app restarted after adding the key
 
 2. **"API request failed" error**
    - Check your API key is valid
@@ -247,6 +258,11 @@ If you want to use `.env` files, you can:
    ```dart
    print('API Key: ${NoteDraftingConfig.getApiKey()}');
    ```
+   
+4. **Verify .env file is loaded:**
+   - Check that `.env` exists in the project root
+   - Verify it's listed in `pubspec.yaml` under `assets:`
+   - Check app startup logs for "✅ Environment variables loaded from .env"
 
 ## 🎉 **Success Metrics**
 

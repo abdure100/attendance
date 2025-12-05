@@ -5,10 +5,10 @@ class AppConfig {
   static const String appVersion = '1.0.0';
 
   // ===== FileMaker (Data API) =====
-  // Host you provided: db.sphereemr.com
+  // Host you provided: fms.sphereemr.com
   // Most services expect the full Data API root (scheme + path).
-  static const String fmHost = 'db.sphereemr.com';
-  static const String baseUrl = 'https://db.sphereemr.com/fmi/data/vLatest';
+  static const String fmHost = 'fms.sphereemr.com';
+  static const String baseUrl = 'https://fms.sphereemr.com/fmi/data/vLatest';
 
   static const String database = 'EIDBI';
   // ⚠️ Set credentials via --dart-define or update these values
