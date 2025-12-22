@@ -18,6 +18,8 @@ Attendance _$AttendanceFromJson(Map<String, dynamic> json) => Attendance(
           : DateTime.parse(json['timeOut'] as String),
       capturedBy: json['capturedBy'] as String,
       note: json['note'] as String?,
+      signatureInBase64: json['signatureInBase64'] as String?,
+      signatureOutBase64: json['signatureOutBase64'] as String?,
     );
 
 Map<String, dynamic> _$AttendanceToJson(Attendance instance) =>
@@ -29,4 +31,6 @@ Map<String, dynamic> _$AttendanceToJson(Attendance instance) =>
       'timeOut': instance.timeOut?.toIso8601String(),
       'capturedBy': instance.capturedBy,
       'note': instance.note,
+      'signatureInBase64': instance.signatureInBase64,
+      'signatureOutBase64': instance.signatureOutBase64,
     };

@@ -450,6 +450,12 @@ class $StopsTable extends Stops with TableInfo<$StopsTable, Stop> {
   late final GeneratedColumn<String> kind = GeneratedColumn<String>(
       'kind', aliasedName, false,
       type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _directionMeta =
+      const VerificationMeta('direction');
+  @override
+  late final GeneratedColumn<String> direction = GeneratedColumn<String>(
+      'direction', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
   static const VerificationMeta _plannedLatLngMeta =
       const VerificationMeta('plannedLatLng');
   @override
@@ -490,11 +496,11 @@ class $StopsTable extends Stops with TableInfo<$StopsTable, Stop> {
   late final GeneratedColumn<String> photoPath = GeneratedColumn<String>(
       'photo_path', aliasedName, true,
       type: DriftSqlType.string, requiredDuringInsert: false);
-  static const VerificationMeta _signaturePathMeta =
-      const VerificationMeta('signaturePath');
+  static const VerificationMeta _signatureBase64Meta =
+      const VerificationMeta('signatureBase64');
   @override
-  late final GeneratedColumn<String> signaturePath = GeneratedColumn<String>(
-      'signature_path', aliasedName, true,
+  late final GeneratedColumn<String> signatureBase64 = GeneratedColumn<String>(
+      'signature_base64', aliasedName, true,
       type: DriftSqlType.string, requiredDuringInsert: false);
   static const VerificationMeta _accuracyMeta =
       const VerificationMeta('accuracy');
@@ -507,12 +513,27 @@ class $StopsTable extends Stops with TableInfo<$StopsTable, Stop> {
   late final GeneratedColumn<double> speed = GeneratedColumn<double>(
       'speed', aliasedName, true,
       type: DriftSqlType.double, requiredDuringInsert: false);
+  static const VerificationMeta _deletedMeta =
+      const VerificationMeta('deleted');
+  @override
+  late final GeneratedColumn<int> deleted = GeneratedColumn<int>(
+      'deleted', aliasedName, false,
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      defaultValue: const Constant(0));
+  static const VerificationMeta _deletedAtMeta =
+      const VerificationMeta('deletedAt');
+  @override
+  late final GeneratedColumn<DateTime> deletedAt = GeneratedColumn<DateTime>(
+      'deleted_at', aliasedName, true,
+      type: DriftSqlType.dateTime, requiredDuringInsert: false);
   @override
   List<GeneratedColumn> get $columns => [
         id,
         tripId,
         clientId,
         kind,
+        direction,
         plannedLatLng,
         actualLatLng,
         actualAddress,
@@ -520,9 +541,11 @@ class $StopsTable extends Stops with TableInfo<$StopsTable, Stop> {
         status,
         note,
         photoPath,
-        signaturePath,
+        signatureBase64,
         accuracy,
-        speed
+        speed,
+        deleted,
+        deletedAt
       ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -556,6 +579,10 @@ class $StopsTable extends Stops with TableInfo<$StopsTable, Stop> {
           _kindMeta, kind.isAcceptableOrUnknown(data['kind']!, _kindMeta));
     } else if (isInserting) {
       context.missing(_kindMeta);
+    }
+    if (data.containsKey('direction')) {
+      context.handle(_directionMeta,
+          direction.isAcceptableOrUnknown(data['direction']!, _directionMeta));
     }
     if (data.containsKey('planned_lat_lng')) {
       context.handle(
@@ -593,11 +620,11 @@ class $StopsTable extends Stops with TableInfo<$StopsTable, Stop> {
       context.handle(_photoPathMeta,
           photoPath.isAcceptableOrUnknown(data['photo_path']!, _photoPathMeta));
     }
-    if (data.containsKey('signature_path')) {
+    if (data.containsKey('signature_base64')) {
       context.handle(
-          _signaturePathMeta,
-          signaturePath.isAcceptableOrUnknown(
-              data['signature_path']!, _signaturePathMeta));
+          _signatureBase64Meta,
+          signatureBase64.isAcceptableOrUnknown(
+              data['signature_base64']!, _signatureBase64Meta));
     }
     if (data.containsKey('accuracy')) {
       context.handle(_accuracyMeta,
@@ -606,6 +633,14 @@ class $StopsTable extends Stops with TableInfo<$StopsTable, Stop> {
     if (data.containsKey('speed')) {
       context.handle(
           _speedMeta, speed.isAcceptableOrUnknown(data['speed']!, _speedMeta));
+    }
+    if (data.containsKey('deleted')) {
+      context.handle(_deletedMeta,
+          deleted.isAcceptableOrUnknown(data['deleted']!, _deletedMeta));
+    }
+    if (data.containsKey('deleted_at')) {
+      context.handle(_deletedAtMeta,
+          deletedAt.isAcceptableOrUnknown(data['deleted_at']!, _deletedAtMeta));
     }
     return context;
   }
@@ -624,6 +659,8 @@ class $StopsTable extends Stops with TableInfo<$StopsTable, Stop> {
           .read(DriftSqlType.string, data['${effectivePrefix}client_id'])!,
       kind: attachedDatabase.typeMapping
           .read(DriftSqlType.string, data['${effectivePrefix}kind'])!,
+      direction: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}direction']),
       plannedLatLng: attachedDatabase.typeMapping
           .read(DriftSqlType.string, data['${effectivePrefix}planned_lat_lng']),
       actualLatLng: attachedDatabase.typeMapping
@@ -638,12 +675,16 @@ class $StopsTable extends Stops with TableInfo<$StopsTable, Stop> {
           .read(DriftSqlType.string, data['${effectivePrefix}note']),
       photoPath: attachedDatabase.typeMapping
           .read(DriftSqlType.string, data['${effectivePrefix}photo_path']),
-      signaturePath: attachedDatabase.typeMapping
-          .read(DriftSqlType.string, data['${effectivePrefix}signature_path']),
+      signatureBase64: attachedDatabase.typeMapping.read(
+          DriftSqlType.string, data['${effectivePrefix}signature_base64']),
       accuracy: attachedDatabase.typeMapping
           .read(DriftSqlType.double, data['${effectivePrefix}accuracy']),
       speed: attachedDatabase.typeMapping
           .read(DriftSqlType.double, data['${effectivePrefix}speed']),
+      deleted: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}deleted'])!,
+      deletedAt: attachedDatabase.typeMapping
+          .read(DriftSqlType.dateTime, data['${effectivePrefix}deleted_at']),
     );
   }
 
@@ -658,6 +699,7 @@ class Stop extends DataClass implements Insertable<Stop> {
   final String tripId;
   final String clientId;
   final String kind;
+  final String? direction;
   final String? plannedLatLng;
   final String? actualLatLng;
   final String? actualAddress;
@@ -665,14 +707,17 @@ class Stop extends DataClass implements Insertable<Stop> {
   final String status;
   final String? note;
   final String? photoPath;
-  final String? signaturePath;
+  final String? signatureBase64;
   final double? accuracy;
   final double? speed;
+  final int deleted;
+  final DateTime? deletedAt;
   const Stop(
       {required this.id,
       required this.tripId,
       required this.clientId,
       required this.kind,
+      this.direction,
       this.plannedLatLng,
       this.actualLatLng,
       this.actualAddress,
@@ -680,9 +725,11 @@ class Stop extends DataClass implements Insertable<Stop> {
       required this.status,
       this.note,
       this.photoPath,
-      this.signaturePath,
+      this.signatureBase64,
       this.accuracy,
-      this.speed});
+      this.speed,
+      required this.deleted,
+      this.deletedAt});
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
@@ -690,6 +737,9 @@ class Stop extends DataClass implements Insertable<Stop> {
     map['trip_id'] = Variable<String>(tripId);
     map['client_id'] = Variable<String>(clientId);
     map['kind'] = Variable<String>(kind);
+    if (!nullToAbsent || direction != null) {
+      map['direction'] = Variable<String>(direction);
+    }
     if (!nullToAbsent || plannedLatLng != null) {
       map['planned_lat_lng'] = Variable<String>(plannedLatLng);
     }
@@ -709,14 +759,18 @@ class Stop extends DataClass implements Insertable<Stop> {
     if (!nullToAbsent || photoPath != null) {
       map['photo_path'] = Variable<String>(photoPath);
     }
-    if (!nullToAbsent || signaturePath != null) {
-      map['signature_path'] = Variable<String>(signaturePath);
+    if (!nullToAbsent || signatureBase64 != null) {
+      map['signature_base64'] = Variable<String>(signatureBase64);
     }
     if (!nullToAbsent || accuracy != null) {
       map['accuracy'] = Variable<double>(accuracy);
     }
     if (!nullToAbsent || speed != null) {
       map['speed'] = Variable<double>(speed);
+    }
+    map['deleted'] = Variable<int>(deleted);
+    if (!nullToAbsent || deletedAt != null) {
+      map['deleted_at'] = Variable<DateTime>(deletedAt);
     }
     return map;
   }
@@ -727,6 +781,9 @@ class Stop extends DataClass implements Insertable<Stop> {
       tripId: Value(tripId),
       clientId: Value(clientId),
       kind: Value(kind),
+      direction: direction == null && nullToAbsent
+          ? const Value.absent()
+          : Value(direction),
       plannedLatLng: plannedLatLng == null && nullToAbsent
           ? const Value.absent()
           : Value(plannedLatLng),
@@ -744,14 +801,18 @@ class Stop extends DataClass implements Insertable<Stop> {
       photoPath: photoPath == null && nullToAbsent
           ? const Value.absent()
           : Value(photoPath),
-      signaturePath: signaturePath == null && nullToAbsent
+      signatureBase64: signatureBase64 == null && nullToAbsent
           ? const Value.absent()
-          : Value(signaturePath),
+          : Value(signatureBase64),
       accuracy: accuracy == null && nullToAbsent
           ? const Value.absent()
           : Value(accuracy),
       speed:
           speed == null && nullToAbsent ? const Value.absent() : Value(speed),
+      deleted: Value(deleted),
+      deletedAt: deletedAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(deletedAt),
     );
   }
 
@@ -763,6 +824,7 @@ class Stop extends DataClass implements Insertable<Stop> {
       tripId: serializer.fromJson<String>(json['tripId']),
       clientId: serializer.fromJson<String>(json['clientId']),
       kind: serializer.fromJson<String>(json['kind']),
+      direction: serializer.fromJson<String?>(json['direction']),
       plannedLatLng: serializer.fromJson<String?>(json['plannedLatLng']),
       actualLatLng: serializer.fromJson<String?>(json['actualLatLng']),
       actualAddress: serializer.fromJson<String?>(json['actualAddress']),
@@ -770,9 +832,11 @@ class Stop extends DataClass implements Insertable<Stop> {
       status: serializer.fromJson<String>(json['status']),
       note: serializer.fromJson<String?>(json['note']),
       photoPath: serializer.fromJson<String?>(json['photoPath']),
-      signaturePath: serializer.fromJson<String?>(json['signaturePath']),
+      signatureBase64: serializer.fromJson<String?>(json['signatureBase64']),
       accuracy: serializer.fromJson<double?>(json['accuracy']),
       speed: serializer.fromJson<double?>(json['speed']),
+      deleted: serializer.fromJson<int>(json['deleted']),
+      deletedAt: serializer.fromJson<DateTime?>(json['deletedAt']),
     );
   }
   @override
@@ -783,6 +847,7 @@ class Stop extends DataClass implements Insertable<Stop> {
       'tripId': serializer.toJson<String>(tripId),
       'clientId': serializer.toJson<String>(clientId),
       'kind': serializer.toJson<String>(kind),
+      'direction': serializer.toJson<String?>(direction),
       'plannedLatLng': serializer.toJson<String?>(plannedLatLng),
       'actualLatLng': serializer.toJson<String?>(actualLatLng),
       'actualAddress': serializer.toJson<String?>(actualAddress),
@@ -790,9 +855,11 @@ class Stop extends DataClass implements Insertable<Stop> {
       'status': serializer.toJson<String>(status),
       'note': serializer.toJson<String?>(note),
       'photoPath': serializer.toJson<String?>(photoPath),
-      'signaturePath': serializer.toJson<String?>(signaturePath),
+      'signatureBase64': serializer.toJson<String?>(signatureBase64),
       'accuracy': serializer.toJson<double?>(accuracy),
       'speed': serializer.toJson<double?>(speed),
+      'deleted': serializer.toJson<int>(deleted),
+      'deletedAt': serializer.toJson<DateTime?>(deletedAt),
     };
   }
 
@@ -801,6 +868,7 @@ class Stop extends DataClass implements Insertable<Stop> {
           String? tripId,
           String? clientId,
           String? kind,
+          Value<String?> direction = const Value.absent(),
           Value<String?> plannedLatLng = const Value.absent(),
           Value<String?> actualLatLng = const Value.absent(),
           Value<String?> actualAddress = const Value.absent(),
@@ -808,14 +876,17 @@ class Stop extends DataClass implements Insertable<Stop> {
           String? status,
           Value<String?> note = const Value.absent(),
           Value<String?> photoPath = const Value.absent(),
-          Value<String?> signaturePath = const Value.absent(),
+          Value<String?> signatureBase64 = const Value.absent(),
           Value<double?> accuracy = const Value.absent(),
-          Value<double?> speed = const Value.absent()}) =>
+          Value<double?> speed = const Value.absent(),
+          int? deleted,
+          Value<DateTime?> deletedAt = const Value.absent()}) =>
       Stop(
         id: id ?? this.id,
         tripId: tripId ?? this.tripId,
         clientId: clientId ?? this.clientId,
         kind: kind ?? this.kind,
+        direction: direction.present ? direction.value : this.direction,
         plannedLatLng:
             plannedLatLng.present ? plannedLatLng.value : this.plannedLatLng,
         actualLatLng:
@@ -826,10 +897,13 @@ class Stop extends DataClass implements Insertable<Stop> {
         status: status ?? this.status,
         note: note.present ? note.value : this.note,
         photoPath: photoPath.present ? photoPath.value : this.photoPath,
-        signaturePath:
-            signaturePath.present ? signaturePath.value : this.signaturePath,
+        signatureBase64: signatureBase64.present
+            ? signatureBase64.value
+            : this.signatureBase64,
         accuracy: accuracy.present ? accuracy.value : this.accuracy,
         speed: speed.present ? speed.value : this.speed,
+        deleted: deleted ?? this.deleted,
+        deletedAt: deletedAt.present ? deletedAt.value : this.deletedAt,
       );
   Stop copyWithCompanion(StopsCompanion data) {
     return Stop(
@@ -837,6 +911,7 @@ class Stop extends DataClass implements Insertable<Stop> {
       tripId: data.tripId.present ? data.tripId.value : this.tripId,
       clientId: data.clientId.present ? data.clientId.value : this.clientId,
       kind: data.kind.present ? data.kind.value : this.kind,
+      direction: data.direction.present ? data.direction.value : this.direction,
       plannedLatLng: data.plannedLatLng.present
           ? data.plannedLatLng.value
           : this.plannedLatLng,
@@ -850,11 +925,13 @@ class Stop extends DataClass implements Insertable<Stop> {
       status: data.status.present ? data.status.value : this.status,
       note: data.note.present ? data.note.value : this.note,
       photoPath: data.photoPath.present ? data.photoPath.value : this.photoPath,
-      signaturePath: data.signaturePath.present
-          ? data.signaturePath.value
-          : this.signaturePath,
+      signatureBase64: data.signatureBase64.present
+          ? data.signatureBase64.value
+          : this.signatureBase64,
       accuracy: data.accuracy.present ? data.accuracy.value : this.accuracy,
       speed: data.speed.present ? data.speed.value : this.speed,
+      deleted: data.deleted.present ? data.deleted.value : this.deleted,
+      deletedAt: data.deletedAt.present ? data.deletedAt.value : this.deletedAt,
     );
   }
 
@@ -865,6 +942,7 @@ class Stop extends DataClass implements Insertable<Stop> {
           ..write('tripId: $tripId, ')
           ..write('clientId: $clientId, ')
           ..write('kind: $kind, ')
+          ..write('direction: $direction, ')
           ..write('plannedLatLng: $plannedLatLng, ')
           ..write('actualLatLng: $actualLatLng, ')
           ..write('actualAddress: $actualAddress, ')
@@ -872,9 +950,11 @@ class Stop extends DataClass implements Insertable<Stop> {
           ..write('status: $status, ')
           ..write('note: $note, ')
           ..write('photoPath: $photoPath, ')
-          ..write('signaturePath: $signaturePath, ')
+          ..write('signatureBase64: $signatureBase64, ')
           ..write('accuracy: $accuracy, ')
-          ..write('speed: $speed')
+          ..write('speed: $speed, ')
+          ..write('deleted: $deleted, ')
+          ..write('deletedAt: $deletedAt')
           ..write(')'))
         .toString();
   }
@@ -885,6 +965,7 @@ class Stop extends DataClass implements Insertable<Stop> {
       tripId,
       clientId,
       kind,
+      direction,
       plannedLatLng,
       actualLatLng,
       actualAddress,
@@ -892,9 +973,11 @@ class Stop extends DataClass implements Insertable<Stop> {
       status,
       note,
       photoPath,
-      signaturePath,
+      signatureBase64,
       accuracy,
-      speed);
+      speed,
+      deleted,
+      deletedAt);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -903,6 +986,7 @@ class Stop extends DataClass implements Insertable<Stop> {
           other.tripId == this.tripId &&
           other.clientId == this.clientId &&
           other.kind == this.kind &&
+          other.direction == this.direction &&
           other.plannedLatLng == this.plannedLatLng &&
           other.actualLatLng == this.actualLatLng &&
           other.actualAddress == this.actualAddress &&
@@ -910,9 +994,11 @@ class Stop extends DataClass implements Insertable<Stop> {
           other.status == this.status &&
           other.note == this.note &&
           other.photoPath == this.photoPath &&
-          other.signaturePath == this.signaturePath &&
+          other.signatureBase64 == this.signatureBase64 &&
           other.accuracy == this.accuracy &&
-          other.speed == this.speed);
+          other.speed == this.speed &&
+          other.deleted == this.deleted &&
+          other.deletedAt == this.deletedAt);
 }
 
 class StopsCompanion extends UpdateCompanion<Stop> {
@@ -920,6 +1006,7 @@ class StopsCompanion extends UpdateCompanion<Stop> {
   final Value<String> tripId;
   final Value<String> clientId;
   final Value<String> kind;
+  final Value<String?> direction;
   final Value<String?> plannedLatLng;
   final Value<String?> actualLatLng;
   final Value<String?> actualAddress;
@@ -927,15 +1014,18 @@ class StopsCompanion extends UpdateCompanion<Stop> {
   final Value<String> status;
   final Value<String?> note;
   final Value<String?> photoPath;
-  final Value<String?> signaturePath;
+  final Value<String?> signatureBase64;
   final Value<double?> accuracy;
   final Value<double?> speed;
+  final Value<int> deleted;
+  final Value<DateTime?> deletedAt;
   final Value<int> rowid;
   const StopsCompanion({
     this.id = const Value.absent(),
     this.tripId = const Value.absent(),
     this.clientId = const Value.absent(),
     this.kind = const Value.absent(),
+    this.direction = const Value.absent(),
     this.plannedLatLng = const Value.absent(),
     this.actualLatLng = const Value.absent(),
     this.actualAddress = const Value.absent(),
@@ -943,9 +1033,11 @@ class StopsCompanion extends UpdateCompanion<Stop> {
     this.status = const Value.absent(),
     this.note = const Value.absent(),
     this.photoPath = const Value.absent(),
-    this.signaturePath = const Value.absent(),
+    this.signatureBase64 = const Value.absent(),
     this.accuracy = const Value.absent(),
     this.speed = const Value.absent(),
+    this.deleted = const Value.absent(),
+    this.deletedAt = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   StopsCompanion.insert({
@@ -953,6 +1045,7 @@ class StopsCompanion extends UpdateCompanion<Stop> {
     required String tripId,
     required String clientId,
     required String kind,
+    this.direction = const Value.absent(),
     this.plannedLatLng = const Value.absent(),
     this.actualLatLng = const Value.absent(),
     this.actualAddress = const Value.absent(),
@@ -960,9 +1053,11 @@ class StopsCompanion extends UpdateCompanion<Stop> {
     required String status,
     this.note = const Value.absent(),
     this.photoPath = const Value.absent(),
-    this.signaturePath = const Value.absent(),
+    this.signatureBase64 = const Value.absent(),
     this.accuracy = const Value.absent(),
     this.speed = const Value.absent(),
+    this.deleted = const Value.absent(),
+    this.deletedAt = const Value.absent(),
     this.rowid = const Value.absent(),
   })  : id = Value(id),
         tripId = Value(tripId),
@@ -974,6 +1069,7 @@ class StopsCompanion extends UpdateCompanion<Stop> {
     Expression<String>? tripId,
     Expression<String>? clientId,
     Expression<String>? kind,
+    Expression<String>? direction,
     Expression<String>? plannedLatLng,
     Expression<String>? actualLatLng,
     Expression<String>? actualAddress,
@@ -981,9 +1077,11 @@ class StopsCompanion extends UpdateCompanion<Stop> {
     Expression<String>? status,
     Expression<String>? note,
     Expression<String>? photoPath,
-    Expression<String>? signaturePath,
+    Expression<String>? signatureBase64,
     Expression<double>? accuracy,
     Expression<double>? speed,
+    Expression<int>? deleted,
+    Expression<DateTime>? deletedAt,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -991,6 +1089,7 @@ class StopsCompanion extends UpdateCompanion<Stop> {
       if (tripId != null) 'trip_id': tripId,
       if (clientId != null) 'client_id': clientId,
       if (kind != null) 'kind': kind,
+      if (direction != null) 'direction': direction,
       if (plannedLatLng != null) 'planned_lat_lng': plannedLatLng,
       if (actualLatLng != null) 'actual_lat_lng': actualLatLng,
       if (actualAddress != null) 'actual_address': actualAddress,
@@ -998,9 +1097,11 @@ class StopsCompanion extends UpdateCompanion<Stop> {
       if (status != null) 'status': status,
       if (note != null) 'note': note,
       if (photoPath != null) 'photo_path': photoPath,
-      if (signaturePath != null) 'signature_path': signaturePath,
+      if (signatureBase64 != null) 'signature_base64': signatureBase64,
       if (accuracy != null) 'accuracy': accuracy,
       if (speed != null) 'speed': speed,
+      if (deleted != null) 'deleted': deleted,
+      if (deletedAt != null) 'deleted_at': deletedAt,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -1010,6 +1111,7 @@ class StopsCompanion extends UpdateCompanion<Stop> {
       Value<String>? tripId,
       Value<String>? clientId,
       Value<String>? kind,
+      Value<String?>? direction,
       Value<String?>? plannedLatLng,
       Value<String?>? actualLatLng,
       Value<String?>? actualAddress,
@@ -1017,15 +1119,18 @@ class StopsCompanion extends UpdateCompanion<Stop> {
       Value<String>? status,
       Value<String?>? note,
       Value<String?>? photoPath,
-      Value<String?>? signaturePath,
+      Value<String?>? signatureBase64,
       Value<double?>? accuracy,
       Value<double?>? speed,
+      Value<int>? deleted,
+      Value<DateTime?>? deletedAt,
       Value<int>? rowid}) {
     return StopsCompanion(
       id: id ?? this.id,
       tripId: tripId ?? this.tripId,
       clientId: clientId ?? this.clientId,
       kind: kind ?? this.kind,
+      direction: direction ?? this.direction,
       plannedLatLng: plannedLatLng ?? this.plannedLatLng,
       actualLatLng: actualLatLng ?? this.actualLatLng,
       actualAddress: actualAddress ?? this.actualAddress,
@@ -1033,9 +1138,11 @@ class StopsCompanion extends UpdateCompanion<Stop> {
       status: status ?? this.status,
       note: note ?? this.note,
       photoPath: photoPath ?? this.photoPath,
-      signaturePath: signaturePath ?? this.signaturePath,
+      signatureBase64: signatureBase64 ?? this.signatureBase64,
       accuracy: accuracy ?? this.accuracy,
       speed: speed ?? this.speed,
+      deleted: deleted ?? this.deleted,
+      deletedAt: deletedAt ?? this.deletedAt,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -1054,6 +1161,9 @@ class StopsCompanion extends UpdateCompanion<Stop> {
     }
     if (kind.present) {
       map['kind'] = Variable<String>(kind.value);
+    }
+    if (direction.present) {
+      map['direction'] = Variable<String>(direction.value);
     }
     if (plannedLatLng.present) {
       map['planned_lat_lng'] = Variable<String>(plannedLatLng.value);
@@ -1076,14 +1186,20 @@ class StopsCompanion extends UpdateCompanion<Stop> {
     if (photoPath.present) {
       map['photo_path'] = Variable<String>(photoPath.value);
     }
-    if (signaturePath.present) {
-      map['signature_path'] = Variable<String>(signaturePath.value);
+    if (signatureBase64.present) {
+      map['signature_base64'] = Variable<String>(signatureBase64.value);
     }
     if (accuracy.present) {
       map['accuracy'] = Variable<double>(accuracy.value);
     }
     if (speed.present) {
       map['speed'] = Variable<double>(speed.value);
+    }
+    if (deleted.present) {
+      map['deleted'] = Variable<int>(deleted.value);
+    }
+    if (deletedAt.present) {
+      map['deleted_at'] = Variable<DateTime>(deletedAt.value);
     }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
@@ -1098,6 +1214,7 @@ class StopsCompanion extends UpdateCompanion<Stop> {
           ..write('tripId: $tripId, ')
           ..write('clientId: $clientId, ')
           ..write('kind: $kind, ')
+          ..write('direction: $direction, ')
           ..write('plannedLatLng: $plannedLatLng, ')
           ..write('actualLatLng: $actualLatLng, ')
           ..write('actualAddress: $actualAddress, ')
@@ -1105,9 +1222,11 @@ class StopsCompanion extends UpdateCompanion<Stop> {
           ..write('status: $status, ')
           ..write('note: $note, ')
           ..write('photoPath: $photoPath, ')
-          ..write('signaturePath: $signaturePath, ')
+          ..write('signatureBase64: $signatureBase64, ')
           ..write('accuracy: $accuracy, ')
           ..write('speed: $speed, ')
+          ..write('deleted: $deleted, ')
+          ..write('deletedAt: $deletedAt, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -1158,9 +1277,30 @@ class $AttendancesTable extends Attendances
   late final GeneratedColumn<String> note = GeneratedColumn<String>(
       'note', aliasedName, true,
       type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _signatureInBase64Meta =
+      const VerificationMeta('signatureInBase64');
   @override
-  List<GeneratedColumn> get $columns =>
-      [id, clientId, date, timeIn, timeOut, capturedBy, note];
+  late final GeneratedColumn<String> signatureInBase64 =
+      GeneratedColumn<String>('signature_in_base64', aliasedName, true,
+          type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _signatureOutBase64Meta =
+      const VerificationMeta('signatureOutBase64');
+  @override
+  late final GeneratedColumn<String> signatureOutBase64 =
+      GeneratedColumn<String>('signature_out_base64', aliasedName, true,
+          type: DriftSqlType.string, requiredDuringInsert: false);
+  @override
+  List<GeneratedColumn> get $columns => [
+        id,
+        clientId,
+        date,
+        timeIn,
+        timeOut,
+        capturedBy,
+        note,
+        signatureInBase64,
+        signatureOutBase64
+      ];
   @override
   String get aliasedName => _alias ?? actualTableName;
   @override
@@ -1208,6 +1348,18 @@ class $AttendancesTable extends Attendances
       context.handle(
           _noteMeta, note.isAcceptableOrUnknown(data['note']!, _noteMeta));
     }
+    if (data.containsKey('signature_in_base64')) {
+      context.handle(
+          _signatureInBase64Meta,
+          signatureInBase64.isAcceptableOrUnknown(
+              data['signature_in_base64']!, _signatureInBase64Meta));
+    }
+    if (data.containsKey('signature_out_base64')) {
+      context.handle(
+          _signatureOutBase64Meta,
+          signatureOutBase64.isAcceptableOrUnknown(
+              data['signature_out_base64']!, _signatureOutBase64Meta));
+    }
     return context;
   }
 
@@ -1231,6 +1383,10 @@ class $AttendancesTable extends Attendances
           .read(DriftSqlType.string, data['${effectivePrefix}captured_by'])!,
       note: attachedDatabase.typeMapping
           .read(DriftSqlType.string, data['${effectivePrefix}note']),
+      signatureInBase64: attachedDatabase.typeMapping.read(
+          DriftSqlType.string, data['${effectivePrefix}signature_in_base64']),
+      signatureOutBase64: attachedDatabase.typeMapping.read(
+          DriftSqlType.string, data['${effectivePrefix}signature_out_base64']),
     );
   }
 
@@ -1248,6 +1404,8 @@ class Attendance extends DataClass implements Insertable<Attendance> {
   final DateTime? timeOut;
   final String capturedBy;
   final String? note;
+  final String? signatureInBase64;
+  final String? signatureOutBase64;
   const Attendance(
       {required this.id,
       required this.clientId,
@@ -1255,7 +1413,9 @@ class Attendance extends DataClass implements Insertable<Attendance> {
       this.timeIn,
       this.timeOut,
       required this.capturedBy,
-      this.note});
+      this.note,
+      this.signatureInBase64,
+      this.signatureOutBase64});
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
@@ -1272,6 +1432,12 @@ class Attendance extends DataClass implements Insertable<Attendance> {
     if (!nullToAbsent || note != null) {
       map['note'] = Variable<String>(note);
     }
+    if (!nullToAbsent || signatureInBase64 != null) {
+      map['signature_in_base64'] = Variable<String>(signatureInBase64);
+    }
+    if (!nullToAbsent || signatureOutBase64 != null) {
+      map['signature_out_base64'] = Variable<String>(signatureOutBase64);
+    }
     return map;
   }
 
@@ -1287,6 +1453,12 @@ class Attendance extends DataClass implements Insertable<Attendance> {
           : Value(timeOut),
       capturedBy: Value(capturedBy),
       note: note == null && nullToAbsent ? const Value.absent() : Value(note),
+      signatureInBase64: signatureInBase64 == null && nullToAbsent
+          ? const Value.absent()
+          : Value(signatureInBase64),
+      signatureOutBase64: signatureOutBase64 == null && nullToAbsent
+          ? const Value.absent()
+          : Value(signatureOutBase64),
     );
   }
 
@@ -1301,6 +1473,10 @@ class Attendance extends DataClass implements Insertable<Attendance> {
       timeOut: serializer.fromJson<DateTime?>(json['timeOut']),
       capturedBy: serializer.fromJson<String>(json['capturedBy']),
       note: serializer.fromJson<String?>(json['note']),
+      signatureInBase64:
+          serializer.fromJson<String?>(json['signatureInBase64']),
+      signatureOutBase64:
+          serializer.fromJson<String?>(json['signatureOutBase64']),
     );
   }
   @override
@@ -1314,6 +1490,8 @@ class Attendance extends DataClass implements Insertable<Attendance> {
       'timeOut': serializer.toJson<DateTime?>(timeOut),
       'capturedBy': serializer.toJson<String>(capturedBy),
       'note': serializer.toJson<String?>(note),
+      'signatureInBase64': serializer.toJson<String?>(signatureInBase64),
+      'signatureOutBase64': serializer.toJson<String?>(signatureOutBase64),
     };
   }
 
@@ -1324,7 +1502,9 @@ class Attendance extends DataClass implements Insertable<Attendance> {
           Value<DateTime?> timeIn = const Value.absent(),
           Value<DateTime?> timeOut = const Value.absent(),
           String? capturedBy,
-          Value<String?> note = const Value.absent()}) =>
+          Value<String?> note = const Value.absent(),
+          Value<String?> signatureInBase64 = const Value.absent(),
+          Value<String?> signatureOutBase64 = const Value.absent()}) =>
       Attendance(
         id: id ?? this.id,
         clientId: clientId ?? this.clientId,
@@ -1333,6 +1513,12 @@ class Attendance extends DataClass implements Insertable<Attendance> {
         timeOut: timeOut.present ? timeOut.value : this.timeOut,
         capturedBy: capturedBy ?? this.capturedBy,
         note: note.present ? note.value : this.note,
+        signatureInBase64: signatureInBase64.present
+            ? signatureInBase64.value
+            : this.signatureInBase64,
+        signatureOutBase64: signatureOutBase64.present
+            ? signatureOutBase64.value
+            : this.signatureOutBase64,
       );
   Attendance copyWithCompanion(AttendancesCompanion data) {
     return Attendance(
@@ -1344,6 +1530,12 @@ class Attendance extends DataClass implements Insertable<Attendance> {
       capturedBy:
           data.capturedBy.present ? data.capturedBy.value : this.capturedBy,
       note: data.note.present ? data.note.value : this.note,
+      signatureInBase64: data.signatureInBase64.present
+          ? data.signatureInBase64.value
+          : this.signatureInBase64,
+      signatureOutBase64: data.signatureOutBase64.present
+          ? data.signatureOutBase64.value
+          : this.signatureOutBase64,
     );
   }
 
@@ -1356,14 +1548,16 @@ class Attendance extends DataClass implements Insertable<Attendance> {
           ..write('timeIn: $timeIn, ')
           ..write('timeOut: $timeOut, ')
           ..write('capturedBy: $capturedBy, ')
-          ..write('note: $note')
+          ..write('note: $note, ')
+          ..write('signatureInBase64: $signatureInBase64, ')
+          ..write('signatureOutBase64: $signatureOutBase64')
           ..write(')'))
         .toString();
   }
 
   @override
-  int get hashCode =>
-      Object.hash(id, clientId, date, timeIn, timeOut, capturedBy, note);
+  int get hashCode => Object.hash(id, clientId, date, timeIn, timeOut,
+      capturedBy, note, signatureInBase64, signatureOutBase64);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -1374,7 +1568,9 @@ class Attendance extends DataClass implements Insertable<Attendance> {
           other.timeIn == this.timeIn &&
           other.timeOut == this.timeOut &&
           other.capturedBy == this.capturedBy &&
-          other.note == this.note);
+          other.note == this.note &&
+          other.signatureInBase64 == this.signatureInBase64 &&
+          other.signatureOutBase64 == this.signatureOutBase64);
 }
 
 class AttendancesCompanion extends UpdateCompanion<Attendance> {
@@ -1385,6 +1581,8 @@ class AttendancesCompanion extends UpdateCompanion<Attendance> {
   final Value<DateTime?> timeOut;
   final Value<String> capturedBy;
   final Value<String?> note;
+  final Value<String?> signatureInBase64;
+  final Value<String?> signatureOutBase64;
   final Value<int> rowid;
   const AttendancesCompanion({
     this.id = const Value.absent(),
@@ -1394,6 +1592,8 @@ class AttendancesCompanion extends UpdateCompanion<Attendance> {
     this.timeOut = const Value.absent(),
     this.capturedBy = const Value.absent(),
     this.note = const Value.absent(),
+    this.signatureInBase64 = const Value.absent(),
+    this.signatureOutBase64 = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   AttendancesCompanion.insert({
@@ -1404,6 +1604,8 @@ class AttendancesCompanion extends UpdateCompanion<Attendance> {
     this.timeOut = const Value.absent(),
     required String capturedBy,
     this.note = const Value.absent(),
+    this.signatureInBase64 = const Value.absent(),
+    this.signatureOutBase64 = const Value.absent(),
     this.rowid = const Value.absent(),
   })  : id = Value(id),
         clientId = Value(clientId),
@@ -1417,6 +1619,8 @@ class AttendancesCompanion extends UpdateCompanion<Attendance> {
     Expression<DateTime>? timeOut,
     Expression<String>? capturedBy,
     Expression<String>? note,
+    Expression<String>? signatureInBase64,
+    Expression<String>? signatureOutBase64,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -1427,6 +1631,9 @@ class AttendancesCompanion extends UpdateCompanion<Attendance> {
       if (timeOut != null) 'time_out': timeOut,
       if (capturedBy != null) 'captured_by': capturedBy,
       if (note != null) 'note': note,
+      if (signatureInBase64 != null) 'signature_in_base64': signatureInBase64,
+      if (signatureOutBase64 != null)
+        'signature_out_base64': signatureOutBase64,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -1439,6 +1646,8 @@ class AttendancesCompanion extends UpdateCompanion<Attendance> {
       Value<DateTime?>? timeOut,
       Value<String>? capturedBy,
       Value<String?>? note,
+      Value<String?>? signatureInBase64,
+      Value<String?>? signatureOutBase64,
       Value<int>? rowid}) {
     return AttendancesCompanion(
       id: id ?? this.id,
@@ -1448,6 +1657,8 @@ class AttendancesCompanion extends UpdateCompanion<Attendance> {
       timeOut: timeOut ?? this.timeOut,
       capturedBy: capturedBy ?? this.capturedBy,
       note: note ?? this.note,
+      signatureInBase64: signatureInBase64 ?? this.signatureInBase64,
+      signatureOutBase64: signatureOutBase64 ?? this.signatureOutBase64,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -1476,6 +1687,12 @@ class AttendancesCompanion extends UpdateCompanion<Attendance> {
     if (note.present) {
       map['note'] = Variable<String>(note.value);
     }
+    if (signatureInBase64.present) {
+      map['signature_in_base64'] = Variable<String>(signatureInBase64.value);
+    }
+    if (signatureOutBase64.present) {
+      map['signature_out_base64'] = Variable<String>(signatureOutBase64.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -1492,6 +1709,8 @@ class AttendancesCompanion extends UpdateCompanion<Attendance> {
           ..write('timeOut: $timeOut, ')
           ..write('capturedBy: $capturedBy, ')
           ..write('note: $note, ')
+          ..write('signatureInBase64: $signatureInBase64, ')
+          ..write('signatureOutBase64: $signatureOutBase64, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -2137,6 +2356,7 @@ typedef $$StopsTableCreateCompanionBuilder = StopsCompanion Function({
   required String tripId,
   required String clientId,
   required String kind,
+  Value<String?> direction,
   Value<String?> plannedLatLng,
   Value<String?> actualLatLng,
   Value<String?> actualAddress,
@@ -2144,9 +2364,11 @@ typedef $$StopsTableCreateCompanionBuilder = StopsCompanion Function({
   required String status,
   Value<String?> note,
   Value<String?> photoPath,
-  Value<String?> signaturePath,
+  Value<String?> signatureBase64,
   Value<double?> accuracy,
   Value<double?> speed,
+  Value<int> deleted,
+  Value<DateTime?> deletedAt,
   Value<int> rowid,
 });
 typedef $$StopsTableUpdateCompanionBuilder = StopsCompanion Function({
@@ -2154,6 +2376,7 @@ typedef $$StopsTableUpdateCompanionBuilder = StopsCompanion Function({
   Value<String> tripId,
   Value<String> clientId,
   Value<String> kind,
+  Value<String?> direction,
   Value<String?> plannedLatLng,
   Value<String?> actualLatLng,
   Value<String?> actualAddress,
@@ -2161,9 +2384,11 @@ typedef $$StopsTableUpdateCompanionBuilder = StopsCompanion Function({
   Value<String> status,
   Value<String?> note,
   Value<String?> photoPath,
-  Value<String?> signaturePath,
+  Value<String?> signatureBase64,
   Value<double?> accuracy,
   Value<double?> speed,
+  Value<int> deleted,
+  Value<DateTime?> deletedAt,
   Value<int> rowid,
 });
 
@@ -2187,6 +2412,9 @@ class $$StopsTableFilterComposer extends Composer<_$AppDatabase, $StopsTable> {
   ColumnFilters<String> get kind => $composableBuilder(
       column: $table.kind, builder: (column) => ColumnFilters(column));
 
+  ColumnFilters<String> get direction => $composableBuilder(
+      column: $table.direction, builder: (column) => ColumnFilters(column));
+
   ColumnFilters<String> get plannedLatLng => $composableBuilder(
       column: $table.plannedLatLng, builder: (column) => ColumnFilters(column));
 
@@ -2208,14 +2436,21 @@ class $$StopsTableFilterComposer extends Composer<_$AppDatabase, $StopsTable> {
   ColumnFilters<String> get photoPath => $composableBuilder(
       column: $table.photoPath, builder: (column) => ColumnFilters(column));
 
-  ColumnFilters<String> get signaturePath => $composableBuilder(
-      column: $table.signaturePath, builder: (column) => ColumnFilters(column));
+  ColumnFilters<String> get signatureBase64 => $composableBuilder(
+      column: $table.signatureBase64,
+      builder: (column) => ColumnFilters(column));
 
   ColumnFilters<double> get accuracy => $composableBuilder(
       column: $table.accuracy, builder: (column) => ColumnFilters(column));
 
   ColumnFilters<double> get speed => $composableBuilder(
       column: $table.speed, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get deleted => $composableBuilder(
+      column: $table.deleted, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<DateTime> get deletedAt => $composableBuilder(
+      column: $table.deletedAt, builder: (column) => ColumnFilters(column));
 }
 
 class $$StopsTableOrderingComposer
@@ -2238,6 +2473,9 @@ class $$StopsTableOrderingComposer
 
   ColumnOrderings<String> get kind => $composableBuilder(
       column: $table.kind, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get direction => $composableBuilder(
+      column: $table.direction, builder: (column) => ColumnOrderings(column));
 
   ColumnOrderings<String> get plannedLatLng => $composableBuilder(
       column: $table.plannedLatLng,
@@ -2263,8 +2501,8 @@ class $$StopsTableOrderingComposer
   ColumnOrderings<String> get photoPath => $composableBuilder(
       column: $table.photoPath, builder: (column) => ColumnOrderings(column));
 
-  ColumnOrderings<String> get signaturePath => $composableBuilder(
-      column: $table.signaturePath,
+  ColumnOrderings<String> get signatureBase64 => $composableBuilder(
+      column: $table.signatureBase64,
       builder: (column) => ColumnOrderings(column));
 
   ColumnOrderings<double> get accuracy => $composableBuilder(
@@ -2272,6 +2510,12 @@ class $$StopsTableOrderingComposer
 
   ColumnOrderings<double> get speed => $composableBuilder(
       column: $table.speed, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get deleted => $composableBuilder(
+      column: $table.deleted, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<DateTime> get deletedAt => $composableBuilder(
+      column: $table.deletedAt, builder: (column) => ColumnOrderings(column));
 }
 
 class $$StopsTableAnnotationComposer
@@ -2295,6 +2539,9 @@ class $$StopsTableAnnotationComposer
   GeneratedColumn<String> get kind =>
       $composableBuilder(column: $table.kind, builder: (column) => column);
 
+  GeneratedColumn<String> get direction =>
+      $composableBuilder(column: $table.direction, builder: (column) => column);
+
   GeneratedColumn<String> get plannedLatLng => $composableBuilder(
       column: $table.plannedLatLng, builder: (column) => column);
 
@@ -2316,14 +2563,20 @@ class $$StopsTableAnnotationComposer
   GeneratedColumn<String> get photoPath =>
       $composableBuilder(column: $table.photoPath, builder: (column) => column);
 
-  GeneratedColumn<String> get signaturePath => $composableBuilder(
-      column: $table.signaturePath, builder: (column) => column);
+  GeneratedColumn<String> get signatureBase64 => $composableBuilder(
+      column: $table.signatureBase64, builder: (column) => column);
 
   GeneratedColumn<double> get accuracy =>
       $composableBuilder(column: $table.accuracy, builder: (column) => column);
 
   GeneratedColumn<double> get speed =>
       $composableBuilder(column: $table.speed, builder: (column) => column);
+
+  GeneratedColumn<int> get deleted =>
+      $composableBuilder(column: $table.deleted, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get deletedAt =>
+      $composableBuilder(column: $table.deletedAt, builder: (column) => column);
 }
 
 class $$StopsTableTableManager extends RootTableManager<
@@ -2353,6 +2606,7 @@ class $$StopsTableTableManager extends RootTableManager<
             Value<String> tripId = const Value.absent(),
             Value<String> clientId = const Value.absent(),
             Value<String> kind = const Value.absent(),
+            Value<String?> direction = const Value.absent(),
             Value<String?> plannedLatLng = const Value.absent(),
             Value<String?> actualLatLng = const Value.absent(),
             Value<String?> actualAddress = const Value.absent(),
@@ -2360,9 +2614,11 @@ class $$StopsTableTableManager extends RootTableManager<
             Value<String> status = const Value.absent(),
             Value<String?> note = const Value.absent(),
             Value<String?> photoPath = const Value.absent(),
-            Value<String?> signaturePath = const Value.absent(),
+            Value<String?> signatureBase64 = const Value.absent(),
             Value<double?> accuracy = const Value.absent(),
             Value<double?> speed = const Value.absent(),
+            Value<int> deleted = const Value.absent(),
+            Value<DateTime?> deletedAt = const Value.absent(),
             Value<int> rowid = const Value.absent(),
           }) =>
               StopsCompanion(
@@ -2370,6 +2626,7 @@ class $$StopsTableTableManager extends RootTableManager<
             tripId: tripId,
             clientId: clientId,
             kind: kind,
+            direction: direction,
             plannedLatLng: plannedLatLng,
             actualLatLng: actualLatLng,
             actualAddress: actualAddress,
@@ -2377,9 +2634,11 @@ class $$StopsTableTableManager extends RootTableManager<
             status: status,
             note: note,
             photoPath: photoPath,
-            signaturePath: signaturePath,
+            signatureBase64: signatureBase64,
             accuracy: accuracy,
             speed: speed,
+            deleted: deleted,
+            deletedAt: deletedAt,
             rowid: rowid,
           ),
           createCompanionCallback: ({
@@ -2387,6 +2646,7 @@ class $$StopsTableTableManager extends RootTableManager<
             required String tripId,
             required String clientId,
             required String kind,
+            Value<String?> direction = const Value.absent(),
             Value<String?> plannedLatLng = const Value.absent(),
             Value<String?> actualLatLng = const Value.absent(),
             Value<String?> actualAddress = const Value.absent(),
@@ -2394,9 +2654,11 @@ class $$StopsTableTableManager extends RootTableManager<
             required String status,
             Value<String?> note = const Value.absent(),
             Value<String?> photoPath = const Value.absent(),
-            Value<String?> signaturePath = const Value.absent(),
+            Value<String?> signatureBase64 = const Value.absent(),
             Value<double?> accuracy = const Value.absent(),
             Value<double?> speed = const Value.absent(),
+            Value<int> deleted = const Value.absent(),
+            Value<DateTime?> deletedAt = const Value.absent(),
             Value<int> rowid = const Value.absent(),
           }) =>
               StopsCompanion.insert(
@@ -2404,6 +2666,7 @@ class $$StopsTableTableManager extends RootTableManager<
             tripId: tripId,
             clientId: clientId,
             kind: kind,
+            direction: direction,
             plannedLatLng: plannedLatLng,
             actualLatLng: actualLatLng,
             actualAddress: actualAddress,
@@ -2411,9 +2674,11 @@ class $$StopsTableTableManager extends RootTableManager<
             status: status,
             note: note,
             photoPath: photoPath,
-            signaturePath: signaturePath,
+            signatureBase64: signatureBase64,
             accuracy: accuracy,
             speed: speed,
+            deleted: deleted,
+            deletedAt: deletedAt,
             rowid: rowid,
           ),
           withReferenceMapper: (p0) => p0
@@ -2444,6 +2709,8 @@ typedef $$AttendancesTableCreateCompanionBuilder = AttendancesCompanion
   Value<DateTime?> timeOut,
   required String capturedBy,
   Value<String?> note,
+  Value<String?> signatureInBase64,
+  Value<String?> signatureOutBase64,
   Value<int> rowid,
 });
 typedef $$AttendancesTableUpdateCompanionBuilder = AttendancesCompanion
@@ -2455,6 +2722,8 @@ typedef $$AttendancesTableUpdateCompanionBuilder = AttendancesCompanion
   Value<DateTime?> timeOut,
   Value<String> capturedBy,
   Value<String?> note,
+  Value<String?> signatureInBase64,
+  Value<String?> signatureOutBase64,
   Value<int> rowid,
 });
 
@@ -2487,6 +2756,14 @@ class $$AttendancesTableFilterComposer
 
   ColumnFilters<String> get note => $composableBuilder(
       column: $table.note, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get signatureInBase64 => $composableBuilder(
+      column: $table.signatureInBase64,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get signatureOutBase64 => $composableBuilder(
+      column: $table.signatureOutBase64,
+      builder: (column) => ColumnFilters(column));
 }
 
 class $$AttendancesTableOrderingComposer
@@ -2518,6 +2795,14 @@ class $$AttendancesTableOrderingComposer
 
   ColumnOrderings<String> get note => $composableBuilder(
       column: $table.note, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get signatureInBase64 => $composableBuilder(
+      column: $table.signatureInBase64,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get signatureOutBase64 => $composableBuilder(
+      column: $table.signatureOutBase64,
+      builder: (column) => ColumnOrderings(column));
 }
 
 class $$AttendancesTableAnnotationComposer
@@ -2549,6 +2834,12 @@ class $$AttendancesTableAnnotationComposer
 
   GeneratedColumn<String> get note =>
       $composableBuilder(column: $table.note, builder: (column) => column);
+
+  GeneratedColumn<String> get signatureInBase64 => $composableBuilder(
+      column: $table.signatureInBase64, builder: (column) => column);
+
+  GeneratedColumn<String> get signatureOutBase64 => $composableBuilder(
+      column: $table.signatureOutBase64, builder: (column) => column);
 }
 
 class $$AttendancesTableTableManager extends RootTableManager<
@@ -2581,6 +2872,8 @@ class $$AttendancesTableTableManager extends RootTableManager<
             Value<DateTime?> timeOut = const Value.absent(),
             Value<String> capturedBy = const Value.absent(),
             Value<String?> note = const Value.absent(),
+            Value<String?> signatureInBase64 = const Value.absent(),
+            Value<String?> signatureOutBase64 = const Value.absent(),
             Value<int> rowid = const Value.absent(),
           }) =>
               AttendancesCompanion(
@@ -2591,6 +2884,8 @@ class $$AttendancesTableTableManager extends RootTableManager<
             timeOut: timeOut,
             capturedBy: capturedBy,
             note: note,
+            signatureInBase64: signatureInBase64,
+            signatureOutBase64: signatureOutBase64,
             rowid: rowid,
           ),
           createCompanionCallback: ({
@@ -2601,6 +2896,8 @@ class $$AttendancesTableTableManager extends RootTableManager<
             Value<DateTime?> timeOut = const Value.absent(),
             required String capturedBy,
             Value<String?> note = const Value.absent(),
+            Value<String?> signatureInBase64 = const Value.absent(),
+            Value<String?> signatureOutBase64 = const Value.absent(),
             Value<int> rowid = const Value.absent(),
           }) =>
               AttendancesCompanion.insert(
@@ -2611,6 +2908,8 @@ class $$AttendancesTableTableManager extends RootTableManager<
             timeOut: timeOut,
             capturedBy: capturedBy,
             note: note,
+            signatureInBase64: signatureInBase64,
+            signatureOutBase64: signatureOutBase64,
             rowid: rowid,
           ),
           withReferenceMapper: (p0) => p0

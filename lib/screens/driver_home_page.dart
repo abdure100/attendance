@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
+import 'package:permission_handler/permission_handler.dart';
 import '../models/client.dart';
 import '../models/trip.dart' as models;
 import '../models/staff.dart';
@@ -12,6 +13,7 @@ import '../services/offline_sync_service.dart';
 import '../services/attendance_service.dart';
 import '../utils/debug_logger.dart';
 import '../widgets/sync_banner.dart';
+import '../widgets/signature_capture_dialog.dart';
 import 'stop_sheet_page.dart';
 
 /// Driver home screen showing today's trip and client list
@@ -134,30 +136,138 @@ class _DriverHomePageState extends State<DriverHomePage> {
     // Then load trip (separate try-catch so client loading doesn't block trip loading)
     try {
       final tripService = Provider.of<TripService>(context, listen: false);
+      final fileMakerService = Provider.of<FileMakerService>(context, listen: false);
       
-      // Load or create today's trip
+      // Load today's trip (don't create - only create when first pickup is recorded)
       _todayTrip = await tripService.getTodayTrip(
         driverId: widget.driver.id,
         direction: _selectedDirection,
       );
       
       if (_todayTrip == null) {
-        DebugLogger.log('📅 No trip found, creating new trip...');
-        _todayTrip = await tripService.createTodayTrip(
-          driverId: widget.driver.id,
-          direction: _selectedDirection,
+        // Check FileMaker for existing trip (in case it exists from previous session)
+        DebugLogger.log('📅 No trip in local DB, checking FileMaker...');
+        final today = DateTime.now();
+        final dateStr = '${today.month.toString().padLeft(2, '0')}/${today.day.toString().padLeft(2, '0')}/${today.year}';
+        final existingPrimaryKey = await fileMakerService.findTripPrimaryKey(
+          widget.driver.id, 
+          dateStr, 
+          _selectedDirection
         );
-        DebugLogger.success('Created new trip: ${_todayTrip?.id}');
+        
+        if (existingPrimaryKey != null && existingPrimaryKey.isNotEmpty) {
+          DebugLogger.success('✅ Found existing trip in FileMaker: $existingPrimaryKey');
+          // Load the trip from FileMaker
+          final syncService = Provider.of<OfflineSyncService>(context, listen: false);
+          _todayTrip = await tripService.createTodayTrip(
+            driverId: widget.driver.id,
+            direction: _selectedDirection,
+            offlineSyncService: syncService,
+            fileMakerService: fileMakerService,
+          );
+        } else {
+          DebugLogger.log('📝 No trip exists yet - will be created on first pickup');
+          // Don't create trip - it will be created when first pickup is recorded
+        }
       } else {
         DebugLogger.log('✅ Found existing trip: ${_todayTrip!.id}');
+        
+        // Check if trip has temporary ID (starts with "trip_") and sync to get PrimaryKey
+        if (_todayTrip!.id != null && _todayTrip!.id!.startsWith('trip_')) {
+          DebugLogger.warn('⚠️ Trip has temporary ID, checking FileMaker for PrimaryKey...');
+          final fileMakerService = Provider.of<FileMakerService>(context, listen: false);
+          final syncService = Provider.of<OfflineSyncService>(context, listen: false);
+          
+          // Format date for FileMaker search (MM/DD/YYYY)
+          final dateStr = '${_todayTrip!.date.month.toString().padLeft(2, '0')}/${_todayTrip!.date.day.toString().padLeft(2, '0')}/${_todayTrip!.date.year}';
+          
+          // First, try to find existing trip in FileMaker
+          var primaryKey = await fileMakerService.findTripPrimaryKey(
+            _todayTrip!.driverId,
+            dateStr,
+            _todayTrip!.direction,
+          );
+          
+          // Check if the PrimaryKey already exists in local database
+          if (primaryKey != null && primaryKey.isNotEmpty) {
+            final existingTripWithKey = await tripService.getTripById(primaryKey);
+            if (existingTripWithKey != null) {
+              // PrimaryKey already exists - check if it's for the same trip
+              if (existingTripWithKey.direction != _todayTrip!.direction ||
+                  existingTripWithKey.driverId != _todayTrip!.driverId ||
+                  existingTripWithKey.date != _todayTrip!.date) {
+                DebugLogger.warn('⚠️ PrimaryKey $primaryKey exists but for different trip');
+                DebugLogger.warn('⚠️ Existing: driverId=${existingTripWithKey.driverId}, direction=${existingTripWithKey.direction}, date=${existingTripWithKey.date}');
+                DebugLogger.warn('⚠️ Current: driverId=${_todayTrip!.driverId}, direction=${_todayTrip!.direction}, date=${_todayTrip!.date}');
+                DebugLogger.log('Creating new trip in FileMaker instead...');
+                primaryKey = await syncService.syncTripImmediately(_todayTrip!);
+              } else {
+                // Same trip - we can use this PrimaryKey
+                DebugLogger.log('✅ PrimaryKey matches existing trip, will update');
+              }
+            }
+          }
+          
+          // If not found or PrimaryKey doesn't match, sync the trip to create it
+          if (primaryKey == null || primaryKey.isEmpty) {
+            DebugLogger.log('Trip not found in FileMaker, syncing to create it...');
+            primaryKey = await syncService.syncTripImmediately(_todayTrip!);
+          }
+          
+          if (primaryKey != null && primaryKey.isNotEmpty) {
+            // Double-check the PrimaryKey doesn't already exist for a different trip
+            final existingTripWithKey = await tripService.getTripById(primaryKey);
+            if (existingTripWithKey != null && 
+                existingTripWithKey.id != _todayTrip!.id &&
+                (existingTripWithKey.direction != _todayTrip!.direction ||
+                 existingTripWithKey.driverId != _todayTrip!.driverId ||
+                 !existingTripWithKey.date.isAtSameMomentAs(DateTime(
+                   _todayTrip!.date.year,
+                   _todayTrip!.date.month,
+                   _todayTrip!.date.day,
+                 )))) {
+              DebugLogger.error('❌ Cannot update: PrimaryKey $primaryKey already exists for different trip', null);
+              DebugLogger.warn('⚠️ Trip will keep temporary ID: ${_todayTrip!.id}');
+            } else {
+              DebugLogger.success('✅ Got PrimaryKey from FileMaker: $primaryKey');
+              // Update trip and stops in database with PrimaryKey
+              try {
+                await tripService.updateTripId(_todayTrip!.id!, primaryKey);
+                // Reload trip with new PrimaryKey
+                _todayTrip = await tripService.getTodayTrip(
+                  driverId: widget.driver.id,
+                  direction: _selectedDirection,
+                );
+                DebugLogger.success('✅ Trip and stops updated with PrimaryKey: ${_todayTrip?.id}');
+              } catch (e, stackTrace) {
+                DebugLogger.error('❌ Error updating trip ID (UNIQUE constraint?)', e, stackTrace);
+                DebugLogger.warn('⚠️ Trip will keep temporary ID: ${_todayTrip!.id}');
+              }
+            }
+          } else {
+            DebugLogger.warn('⚠️ Could not get PrimaryKey, trip will use temporary ID');
+          }
+        }
       }
       
       if (_todayTrip != null && _assignedClients.isNotEmpty) {
+        // Sync stops from FileMaker to local database (to know which are completed)
+        await tripService.syncStopsFromFileMaker(
+          tripId: _todayTrip!.id!,
+          fileMakerService: fileMakerService,
+        );
+        
         _clientStatus = await tripService.getClientStatus(
           tripId: _todayTrip!.id!,
           clients: _assignedClients,
         );
         DebugLogger.log('✅ Client status loaded: ${_clientStatus.length} clients');
+      } else if (_assignedClients.isNotEmpty) {
+        // No trip yet - all clients are "Not picked"
+        _clientStatus = {
+          for (var client in _assignedClients) client.id: 'Not picked'
+        };
+        DebugLogger.log('📝 No trip yet - all clients marked as "Not picked"');
       }
     } catch (e, stackTrace) {
       DebugLogger.error('Error loading trip', e, stackTrace);
@@ -190,31 +300,84 @@ class _DriverHomePageState extends State<DriverHomePage> {
   }
 
   Future<void> _handlePickup(Client client) async {
+    // Check if signature is required for pickup based on staff settings
+    SignatureResult? signatureResult;
+    if (widget.driver.requiresPickupSignature) {
+      signatureResult = await SignatureCaptureDialog.show(
+        context,
+        clientName: client.name,
+        title: 'Check In Confirmation',
+      );
+      
+      // User cancelled signature
+      if (signatureResult == null) {
+        return;
+      }
+    }
+    
     try {
       final tripService = Provider.of<TripService>(context, listen: false);
+      final offlineSyncService = Provider.of<OfflineSyncService>(context, listen: false);
+      final fileMakerService = Provider.of<FileMakerService>(context, listen: false);
       
+      // Create trip if it doesn't exist (first pickup creates the trip)
+      if (_todayTrip == null) {
+        DebugLogger.log('📅 Creating trip for first pickup...');
+        _todayTrip = await tripService.createTodayTrip(
+          driverId: widget.driver.id,
+          direction: _selectedDirection,
+          offlineSyncService: offlineSyncService,
+          fileMakerService: fileMakerService,
+        );
+        DebugLogger.success('✅ Trip created with PrimaryKey: ${_todayTrip?.id}');
+      }
+      
+      // Use Base64 signature data for FileMaker storage
       await tripService.recordStop(
         tripId: _todayTrip!.id!,
         clientId: client.id,
         kind: 'pickup',
+        signatureBase64: signatureResult?.base64Data,
+        requireSignature: widget.driver.requiresPickupSignature,
+        offlineSyncService: offlineSyncService,
+        syncDirectly: true, // DEBUG: Write directly to FileMaker
       );
       
       await _loadTrip();
       
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Pickup recorded'),
+          SnackBar(
+            content: Text(widget.driver.requiresPickupSignature 
+                ? 'Check in recorded with signature' 
+                : 'Check in recorded'),
             backgroundColor: Colors.green,
           ),
         );
       }
     } catch (e) {
       if (mounted) {
+        String errorMessage = 'Error recording pickup';
+        if (e.toString().contains('location') || e.toString().contains('permission')) {
+          errorMessage = 'Location permission is required to record stops.\nPlease enable location access in Settings.';
+        } else {
+          errorMessage = 'Error: $e';
+        }
+        
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Error: $e'),
+            content: Text(errorMessage),
             backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
+            action: (e.toString().contains('location') || e.toString().contains('permission'))
+                ? SnackBarAction(
+                    label: 'Settings',
+                    textColor: Colors.white,
+                    onPressed: () async {
+                      await Permission.locationWhenInUse.request();
+                    },
+                  )
+                : null,
           ),
         );
       }
@@ -222,31 +385,62 @@ class _DriverHomePageState extends State<DriverHomePage> {
   }
 
   Future<void> _handleDropoff(Client client) async {
+    // Check if signature is required for dropoff based on staff settings
+    SignatureResult? signatureResult;
+    if (widget.driver.requiresDropoffSignature) {
+      signatureResult = await SignatureCaptureDialog.show(
+        context,
+        clientName: client.name,
+        title: 'Check Out Confirmation',
+      );
+      
+      // User cancelled signature
+      if (signatureResult == null) {
+        return;
+      }
+    }
+    
     try {
       final tripService = Provider.of<TripService>(context, listen: false);
+      final offlineSyncService = Provider.of<OfflineSyncService>(context, listen: false);
       
+      // Use Base64 signature data for FileMaker storage
       await tripService.recordStop(
         tripId: _todayTrip!.id!,
         clientId: client.id,
         kind: 'dropoff',
+        signatureBase64: signatureResult?.base64Data,
+        requireSignature: widget.driver.requiresDropoffSignature,
+        offlineSyncService: offlineSyncService,
+        syncDirectly: true, // DEBUG: Write directly to FileMaker
       );
       
       await _loadTrip();
       
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Dropoff recorded'),
+          SnackBar(
+            content: Text(widget.driver.requiresDropoffSignature 
+                ? 'Check out recorded with signature' 
+                : 'Check out recorded'),
             backgroundColor: Colors.green,
           ),
         );
       }
     } catch (e) {
       if (mounted) {
+        String errorMessage = 'Error recording check out';
+        if (e.toString().contains('location') || e.toString().contains('permission')) {
+          errorMessage = 'Location permission is required to record stops. Please enable location access in Settings.';
+        } else {
+          errorMessage = 'Error: $e';
+        }
+        
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Error: $e'),
+            content: Text(errorMessage),
             backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
           ),
         );
       }
@@ -254,13 +448,12 @@ class _DriverHomePageState extends State<DriverHomePage> {
   }
 
   Color _getStatusColor(String status) {
-    switch (status) {
-      case 'Dropped':
-        return Colors.green;
-      case 'Picked':
-        return Colors.orange;
-      default:
-        return Colors.grey;
+    if (status.startsWith('Dropped')) {
+      return Colors.green;
+    } else if (status.startsWith('Picked')) {
+      return Colors.orange;
+    } else {
+      return Colors.grey;
     }
   }
 
@@ -424,14 +617,19 @@ class _DriverHomePageState extends State<DriverHomePage> {
             ),
           IconButton(
             icon: const Icon(Icons.list),
-            onPressed: () {
+            onPressed: () async {
               if (_todayTrip != null) {
-                Navigator.push(
+                await Navigator.push(
                   context,
                   MaterialPageRoute(
                     builder: (context) => StopSheetPage(tripId: _todayTrip!.id!),
                   ),
                 );
+                // Refresh client status when returning from StopSheetPage
+                // (in case stops were deleted)
+                if (mounted) {
+                  await _loadTrip();
+                }
               }
             },
             tooltip: 'View Trip Sheet',
@@ -504,52 +702,59 @@ class _DriverHomePageState extends State<DriverHomePage> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Trip card
-                      if (_todayTrip != null)
-                        Card(
-                          margin: const EdgeInsets.all(16),
-                          child: Padding(
-                            padding: const EdgeInsets.all(16),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  children: [
-                                    Expanded(
-                                      child: Text(
-                                        'Today\'s ${_todayTrip!.direction} Route',
-                                        style: Theme.of(context).textTheme.titleLarge,
-                                      ),
+                      // Route selector card (always show)
+                      Card(
+                        margin: const EdgeInsets.all(16),
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      'Today\'s $_selectedDirection Route',
+                                      style: Theme.of(context).textTheme.titleLarge,
                                     ),
-                                    SegmentedButton<String>(
-                                      segments: const [
-                                        ButtonSegment(value: 'AM', label: Text('AM')),
-                                        ButtonSegment(value: 'PM', label: Text('PM')),
-                                      ],
-                                      selected: {_selectedDirection},
-                                      onSelectionChanged: (Set<String> newSelection) {
-                                        setState(() {
-                                          _selectedDirection = newSelection.first;
-                                        });
-                                        _loadTrip();
-                                      },
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 8),
+                                  ),
+                                  SegmentedButton<String>(
+                                    segments: const [
+                                      ButtonSegment(value: 'AM', label: Text('AM')),
+                                      ButtonSegment(value: 'PM', label: Text('PM')),
+                                    ],
+                                    selected: {_selectedDirection},
+                                    onSelectionChanged: (Set<String> newSelection) {
+                                      setState(() {
+                                        _selectedDirection = newSelection.first;
+                                      });
+                                      _loadTrip();
+                                    },
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                'Date: ${DateFormat('MMM dd, yyyy').format(DateTime.now())}',
+                                style: Theme.of(context).textTheme.bodyMedium,
+                              ),
+                              if (_todayTrip == null)
                                 Text(
-                                  'Date: ${DateFormat('MMM dd, yyyy').format(_todayTrip!.date)}',
+                                  'No pickups recorded yet',
+                                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                    color: Colors.grey,
+                                    fontStyle: FontStyle.italic,
+                                  ),
+                                ),
+                              if (_todayTrip?.routeName != null)
+                                Text(
+                                  'Route: ${_todayTrip!.routeName}',
                                   style: Theme.of(context).textTheme.bodyMedium,
                                 ),
-                                if (_todayTrip!.routeName != null)
-                                  Text(
-                                    'Route: ${_todayTrip!.routeName}',
-                                    style: Theme.of(context).textTheme.bodyMedium,
-                                  ),
-                              ],
-                            ),
+                            ],
                           ),
                         ),
+                      ),
                       
                       // Clients list
                       Padding(
@@ -606,14 +811,14 @@ class _DriverHomePageState extends State<DriverHomePage> {
                                     ),
                                   ],
                                 ),
-                                trailing: status != 'Dropped'
+                                trailing: !status.startsWith('Dropped')
                                     ? IconButton(
                                         icon: const Icon(Icons.check_circle),
-                                        color: status == 'Not picked' ? Colors.blue : Colors.green,
-                                        onPressed: status == 'Not picked'
+                                        color: status.startsWith('Not picked') ? Colors.blue : Colors.green,
+                                        onPressed: status.startsWith('Not picked')
                                             ? () => _handlePickup(client)
                                             : () => _handleDropoff(client),
-                                        tooltip: status == 'Not picked' ? 'Pick Up' : 'Drop Off',
+                                        tooltip: status.startsWith('Not picked') ? 'Pick Up' : 'Drop Off',
                                       )
                                     : null,
                                 isThreeLine: false,

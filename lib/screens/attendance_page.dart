@@ -12,6 +12,7 @@ import '../services/auth_service.dart';
 import '../services/offline_sync_service.dart';
 import '../utils/debug_logger.dart';
 import '../widgets/sync_banner.dart';
+import '../widgets/signature_capture_dialog.dart';
 
 /// Attendance screen for center staff to record time-in/out
 class AttendancePage extends StatefulWidget {
@@ -83,20 +84,38 @@ class _AttendancePageState extends State<AttendancePage> {
   }
 
   Future<void> _handleTimeIn(Client client) async {
+    // Check if signature is required for time-in based on staff settings
+    SignatureResult? signatureResult;
+    if (widget.staff.requiresTimeInSignature) {
+      signatureResult = await SignatureCaptureDialog.show(
+        context,
+        clientName: client.name,
+        title: 'Time In Confirmation',
+      );
+      
+      // User cancelled signature
+      if (signatureResult == null) {
+        return;
+      }
+    }
+    
     try {
       final attendanceService = Provider.of<AttendanceService>(context, listen: false);
       
       await attendanceService.recordTimeIn(
         clientId: client.id,
         staffId: widget.staff.id,
+        signatureInBase64: signatureResult?.base64Data,
       );
       
       await _loadData();
       
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Time-in recorded'),
+          SnackBar(
+            content: Text(widget.staff.requiresTimeInSignature 
+                ? 'Time-in recorded with signature' 
+                : 'Time-in recorded'),
             backgroundColor: Colors.green,
           ),
         );
@@ -114,20 +133,38 @@ class _AttendancePageState extends State<AttendancePage> {
   }
 
   Future<void> _handleTimeOut(Client client) async {
+    // Check if signature is required for time-out based on staff settings
+    SignatureResult? signatureResult;
+    if (widget.staff.requiresTimeOutSignature) {
+      signatureResult = await SignatureCaptureDialog.show(
+        context,
+        clientName: client.name,
+        title: 'Time Out Confirmation',
+      );
+      
+      // User cancelled signature
+      if (signatureResult == null) {
+        return;
+      }
+    }
+    
     try {
       final attendanceService = Provider.of<AttendanceService>(context, listen: false);
       
       await attendanceService.recordTimeOut(
         clientId: client.id,
         staffId: widget.staff.id,
+        signatureOutBase64: signatureResult?.base64Data,
       );
       
       await _loadData();
       
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Time-out recorded'),
+          SnackBar(
+            content: Text(widget.staff.requiresTimeOutSignature 
+                ? 'Time-out recorded with signature' 
+                : 'Time-out recorded'),
             backgroundColor: Colors.green,
           ),
         );

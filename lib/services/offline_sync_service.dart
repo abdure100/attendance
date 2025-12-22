@@ -66,23 +66,87 @@ class OfflineSyncService extends ChangeNotifier {
     return results.length;
   }
 
+  /// Remove pending sync items for a specific entity (trip or stop)
+  /// This is called when an entity is deleted locally
+  Future<void> removePendingSyncItems(String entity, String entityId) async {
+    try {
+      DebugLogger.log('🗑️ Removing pending sync items for $entity: $entityId');
+      
+      // Get all pending sync items (we need to check all items when deleting trips to find related stops)
+      final query = _database.select(_database.outboxes)
+        ..where((o) => o.synced.equals(false));
+      final items = await query.get();
+      
+      int removedCount = 0;
+      for (final item in items) {
+        try {
+          final payload = jsonDecode(item.payloadJson) as Map<String, dynamic>;
+          
+          // Check if this item matches the deleted entity
+          bool shouldRemove = false;
+          
+          if (entity == 'trip') {
+            // Remove trip items
+            if (item.entity == 'trip' && 
+                (payload['id'] == entityId || payload['PrimaryKey'] == entityId)) {
+              shouldRemove = true;
+            }
+            // Also remove any stops that reference this trip
+            if (item.entity == 'stop' && payload['tripId'] == entityId) {
+              shouldRemove = true;
+            }
+          } else if (entity == 'stop') {
+            // Remove stop items
+            if (item.entity == 'stop' && 
+                (payload['id'] == entityId || payload['PrimaryKey'] == entityId)) {
+              shouldRemove = true;
+            }
+          }
+          
+          if (shouldRemove) {
+            await (_database.delete(_database.outboxes)..where((o) => o.id.equals(item.id))).go();
+            removedCount++;
+            DebugLogger.log('✅ Removed pending sync item: ${item.entity} (${item.op})');
+          }
+        } catch (e) {
+          DebugLogger.warn('Error parsing payload for item ${item.id}: $e');
+        }
+      }
+      
+      if (removedCount > 0) {
+        DebugLogger.success('✅ Removed $removedCount pending sync item(s) for $entity: $entityId');
+        notifyListeners(); // Notify listeners that pending count changed
+      } else {
+        DebugLogger.log('ℹ️ No pending sync items found for $entity: $entityId');
+      }
+    } catch (e, stackTrace) {
+      DebugLogger.error('Error removing pending sync items', e, stackTrace);
+    }
+  }
+
   /// Sync all pending items
   Future<SyncResult> syncAll() async {
-    DebugLogger.info('🔄 Starting sync process...');
+    DebugLogger.info('═══════════════════════════════════════════════════════');
+    DebugLogger.info('🔄 SYNC PROCESS STARTING');
+    DebugLogger.info('═══════════════════════════════════════════════════════');
     
+    DebugLogger.log('📍 SYNC STEP 1: Checking FileMaker service...');
     final fileMakerService = _getFileMakerService();
     if (fileMakerService == null) {
-      DebugLogger.error('FileMaker service not available', null);
+      DebugLogger.error('❌ FileMaker service not available', null);
       return SyncResult(success: false, error: 'FileMaker service not available');
     }
+    DebugLogger.success('✅ FileMaker service available');
 
+    DebugLogger.log('📍 SYNC STEP 2: Checking internet connection...');
     final isConnected = await isOnline();
     if (!isConnected) {
-      DebugLogger.warn('No internet connection');
+      DebugLogger.warn('❌ No internet connection');
       return SyncResult(success: false, error: 'No internet connection');
     }
+    DebugLogger.success('✅ Online');
 
-    DebugLogger.info('✅ Online, checking for pending items...');
+    DebugLogger.log('📍 SYNC STEP 3: Checking for pending items...');
 
     // Get all unsynced items
     // Order by entity type first (trips before stops, stops before attendance)
@@ -108,7 +172,7 @@ class OfflineSyncService extends ChangeNotifier {
     });
     
     DebugLogger.info('📦 Found ${items.length} pending items to sync');
-    DebugLogger.log('Sync order: ${items.map((i) => '${i.entity}(${i.op})').join(', ')}');
+    DebugLogger.log('   Sync order: ${items.map((i) => '${i.entity}(${i.op})').join(', ')}');
     
     if (items.isEmpty) {
       DebugLogger.info('✅ No items to sync');
@@ -122,28 +186,51 @@ class OfflineSyncService extends ChangeNotifier {
     for (int i = 0; i < items.length; i++) {
       final item = items[i];
       try {
-        DebugLogger.info('📤 Syncing item ${i + 1}/${items.length}: ${item.entity} (${item.op})');
+        DebugLogger.info('═══════════════════════════════════════════════════════');
+        DebugLogger.info('📤 SYNC STEP ${i + 1}/${items.length}: ${item.entity.toUpperCase()} (${item.op})');
+        DebugLogger.info('═══════════════════════════════════════════════════════');
         final payload = jsonDecode(item.payloadJson) as Map<String, dynamic>;
-        DebugLogger.log('Payload keys: ${payload.keys.toList()}');
+        DebugLogger.log('   Payload keys: ${payload.keys.toList()}');
+        if (item.entity == 'stop') {
+          DebugLogger.log('   Stop ID: ${payload['id'] ?? payload['PrimaryKey']}');
+          final stopTripId = payload['tripId'];
+          DebugLogger.log('   Trip ID in payload: $stopTripId');
+          if (stopTripId != null) {
+            if (stopTripId.startsWith('trip_')) {
+              DebugLogger.warn('   ⚠️ WARNING: Stop has temporary tripId: $stopTripId');
+              DebugLogger.warn('   ⚠️ This stop was queued before the trip got its FileMaker PrimaryKey');
+            } else {
+              DebugLogger.log('   ✅ Stop has tripId that looks like a PrimaryKey: $stopTripId');
+            }
+          }
+          DebugLogger.log('   Client ID: ${payload['clientId']}');
+          DebugLogger.log('   Kind: ${payload['kind']}');
+        }
         
         bool success = false;
+        DebugLogger.log('   Calling sync method for ${item.entity}...');
         switch (item.entity) {
           case 'trip':
-            success = await _syncTrip(payload, item.op);
+            DebugLogger.log('   Syncing trip to FileMaker...');
+            final primaryKey = await _syncTrip(payload, item.op);
+            success = primaryKey != null;
             break;
           case 'stop':
+            DebugLogger.log('   Syncing stop to FileMaker...');
             success = await _syncStop(payload, item.op);
             break;
           case 'attendance':
+            DebugLogger.log('   Syncing attendance to FileMaker...');
             success = await _syncAttendance(payload, item.op);
             break;
           default:
             DebugLogger.warn('Unknown entity type: ${item.entity}');
         }
         
-        DebugLogger.log('Sync result for item ${i + 1}: ${success ? "✅ SUCCESS" : "❌ FAILED"}');
+        DebugLogger.log('   Sync result: ${success ? "✅ SUCCESS" : "❌ FAILED"}');
 
         if (success) {
+          DebugLogger.log('   Marking item as synced in database...');
           // Mark as synced
           await (_database.update(_database.outboxes)..where((o) => o.id.equals(item.id)))
               .write(OutboxesCompanion(
@@ -151,9 +238,11 @@ class OfflineSyncService extends ChangeNotifier {
             syncedAt: Value(DateTime.now()),
           ));
           successCount++;
+          DebugLogger.success('✅ Item ${i + 1} synced successfully');
         } else {
           // Increment retry count
           final newRetries = item.retries + 1;
+          DebugLogger.warn('   Retry count: $newRetries/5');
           await (_database.update(_database.outboxes)..where((o) => o.id.equals(item.id)))
               .write(OutboxesCompanion(
             retries: Value(newRetries),
@@ -162,6 +251,7 @@ class OfflineSyncService extends ChangeNotifier {
           
           // Stop syncing if too many retries
           if (newRetries >= 5) {
+            DebugLogger.error('❌ Max retries reached for item ${item.id}', null);
             lastError = 'Max retries reached for item ${item.id}';
             break;
           }
@@ -189,20 +279,33 @@ class OfflineSyncService extends ChangeNotifier {
       error: lastError,
     );
     
-    DebugLogger.info('🔄 Sync complete: ${result.successCount} succeeded, ${result.failureCount} failed');
+    DebugLogger.info('═══════════════════════════════════════════════════════');
+    DebugLogger.info('🔄 SYNC PROCESS COMPLETE');
+    DebugLogger.info('   ✅ Succeeded: ${result.successCount}');
+    DebugLogger.info('   ❌ Failed: ${result.failureCount}');
     if (result.error != null) {
-      DebugLogger.error('Last error: ${result.error}', null);
+      DebugLogger.error('   Last error: ${result.error}', null);
     }
+    DebugLogger.info('═══════════════════════════════════════════════════════');
     
     return result;
   }
 
-  Future<bool> _syncTrip(Map<String, dynamic> payload, String op) async {
+  /// Sync a trip immediately to FileMaker and return the PrimaryKey
+  /// This is used when we need the PrimaryKey right away (e.g., for creating stops)
+  Future<String?> syncTripImmediately(models.Trip trip) async {
+    final syncPayload = SyncHelpers.prepareTripForSync(trip);
+    return await _syncTrip(syncPayload, 'create');
+  }
+
+  /// Sync a trip to FileMaker
+  /// Returns the PrimaryKey if successful, null otherwise
+  Future<String?> _syncTrip(Map<String, dynamic> payload, String op) async {
     try {
       final fileMakerService = _getFileMakerService();
       if (fileMakerService == null) {
         DebugLogger.error('FileMakerService not available for trip sync', null);
-        return false;
+        return null;
       }
 
       final trip = models.Trip.fromJson(payload);
@@ -252,9 +355,9 @@ class OfflineSyncService extends ChangeNotifier {
       if (op == 'create') {
         DebugLogger.info('Creating trip: ${trip.id}');
         DebugLogger.log('Trip details: date=${trip.date}, driverId=${trip.driverId}, direction=${trip.direction}, status=${trip.status}');
-        DebugLogger.log('Sending to FileMaker layout: api_trips');
+        DebugLogger.log('Sending to FileMaker layout: dapi-api_trips');
         DebugLogger.log('Field names being sent: ${fieldData.keys.join(", ")}');
-        var recordId = await fileMakerService.createRecord('api_trips', fieldData);
+        var recordId = await fileMakerService.createRecord('dapi-api_trips', fieldData);
         
         // If regular creation fails, try manual method as fallback
         if (recordId == null) {
@@ -280,65 +383,123 @@ class OfflineSyncService extends ChangeNotifier {
         if (recordId != null) {
           DebugLogger.success('✅ Trip created successfully in FileMaker with recordId: $recordId');
           DebugLogger.log('Trip PrimaryKey: ${trip.id}, FileMaker recordId: $recordId');
+          
+          // Get the PrimaryKey from FileMaker
+          DebugLogger.log('🔍 Fetching PrimaryKey from FileMaker for recordId: $recordId');
+          final primaryKey = await fileMakerService.getPrimaryKeyFromRecordId('dapi-api_trips', recordId);
+          
+          if (primaryKey != null) {
+            DebugLogger.success('✅ Got PrimaryKey from FileMaker: $primaryKey');
+            return primaryKey;
+          } else {
+            DebugLogger.warn('⚠️ Could not get PrimaryKey from FileMaker, using recordId as fallback');
+            return recordId; // Fallback to recordId if PrimaryKey not found
+          }
         } else {
           DebugLogger.error('❌ Trip creation returned null recordId', null);
           DebugLogger.log('This usually means FileMaker rejected the record. Check:');
-          DebugLogger.log('1. Does the api_trips layout exist?');
-          DebugLogger.log('2. Is the "date" field on the api_trips layout? (case-sensitive: lowercase "date")');
+          DebugLogger.log('1. Does the dapi-api_trips layout exist?');
+          DebugLogger.log('2. Is the "date" field on the dapi-api_trips layout? (case-sensitive: lowercase "date")');
           DebugLogger.log('3. Is the "date" field type set to Text (not Date)?');
           DebugLogger.log('4. Are there any script triggers (OnRecordCommit, OnRecordCreate) that might be validating?');
           DebugLogger.log('5. Do all field names match exactly? (case-sensitive)');
           DebugLogger.log('6. Check FileMaker Data API error logs for specific validation errors');
           DebugLogger.log('7. Try creating a record manually in FileMaker with the same data to see if it works');
           DebugLogger.log('8. Verify the field name is exactly "date" (lowercase) in FileMaker');
+          return null;
         }
-        return recordId != null;
       } else if (op == 'update' && trip.id != null) {
         DebugLogger.info('Updating trip: ${trip.id}');
         // For updates, we need to find the FileMaker recordId by PrimaryKey first
         // because trip.id is a string PrimaryKey, not a numeric recordId
         try {
-          final recordId = await fileMakerService.findRecordIdByPrimaryKey('api_trips', trip.id!);
+          final recordId = await fileMakerService.findRecordIdByPrimaryKey('dapi-api_trips', trip.id!);
           if (recordId != null) {
             DebugLogger.log('Found FileMaker recordId: $recordId for PrimaryKey: ${trip.id}');
-            final success = await fileMakerService.updateRecord('api_trips', recordId, fieldData);
+            final success = await fileMakerService.updateRecord('dapi-api_trips', recordId, fieldData);
             if (success) {
               DebugLogger.success('Trip updated successfully');
+              // Return the PrimaryKey for successful updates
+              return trip.id;
             } else {
               DebugLogger.error('Trip update failed', null);
+              return null;
             }
-            return success;
           } else {
             DebugLogger.error('Could not find trip record with PrimaryKey: ${trip.id}', null);
-            return false;
+            return null;
           }
         } catch (e, stackTrace) {
           DebugLogger.error('Error finding trip record for update', e, stackTrace);
-          return false;
+          return null;
         }
       }
-      return false;
+      return null;
     } catch (e, stackTrace) {
       DebugLogger.error('Error syncing trip', e, stackTrace);
-      return false;
+      return null;
     }
   }
 
+  /// Sync a stop immediately to FileMaker (for debugging)
+  /// Returns true if successful, false otherwise
+  Future<bool> syncStopImmediately(models.Stop stop) async {
+    DebugLogger.info('🔄 Syncing stop immediately to FileMaker (DEBUG MODE)...');
+    final payload = stop.toJson();
+    return await _syncStop(payload, 'create');
+  }
+
   Future<bool> _syncStop(Map<String, dynamic> payload, String op) async {
+    DebugLogger.log('   ┌─ SYNC STOP: Starting stop sync process');
     try {
+      DebugLogger.log('   │ STEP 1: Getting FileMaker service...');
       final fileMakerService = _getFileMakerService();
       if (fileMakerService == null) {
-        DebugLogger.error('FileMakerService not available for stop sync', null);
+        DebugLogger.error('   │ ❌ FileMakerService not available for stop sync', null);
         return false;
       }
+      DebugLogger.success('   │ ✅ FileMaker service available');
 
-      final stop = models.Stop.fromJson(payload);
+      DebugLogger.log('   │ STEP 2: Parsing stop from payload...');
+      var stop = models.Stop.fromJson(payload);
+      DebugLogger.log('   │   Stop ID: ${stop.id}');
+      DebugLogger.log('   │   Trip ID: ${stop.tripId}');
+      DebugLogger.log('   │   Client ID: ${stop.clientId}');
+      DebugLogger.log('   │   Kind: ${stop.kind}');
       final syncPayload = SyncHelpers.prepareStopForSync(stop);
       
-      // Remove PrimaryKey from payload for create operations
+      DebugLogger.log('   │ STEP 3: Preparing field data for FileMaker...');
       final fieldData = Map<String, dynamic>.from(syncPayload);
-      if (op == 'create') {
-        fieldData.remove('PrimaryKey');
+      
+      // Remove PrimaryKey - FileMaker generates it on create, and it cannot be modified on update
+      fieldData.remove('PrimaryKey');
+      DebugLogger.log('   │   Removed PrimaryKey (cannot be modified)');
+      
+      // Remove direction field - FileMaker backend will auto-generate it
+      fieldData.remove('direction');
+      DebugLogger.log('   │   Removed direction (FileMaker will auto-generate)');
+      
+      // For update operations, remove fields that cannot be modified after creation
+      if (op == 'update') {
+        fieldData.remove('clientId'); // Client cannot be changed after creation
+        fieldData.remove('tripId');   // Trip cannot be changed after creation
+        DebugLogger.log('   │   Removed clientId/tripId (locked after creation)');
+      }
+      
+      // Keep tripId with PrimaryKey value for debugging
+      // Relationship: dapi-api_trips.PrimaryKey = dapi-api_stops.tripId
+      if (fieldData['tripId'] != null) {
+        final tripIdValue = fieldData['tripId'] as String;
+        DebugLogger.log('   │   tripId (PrimaryKey): $tripIdValue');
+        DebugLogger.log('   │   Relationship: dapi-api_trips.PrimaryKey = dapi-api_stops.tripId');
+        if (tripIdValue.startsWith('trip_')) {
+          DebugLogger.warn('   │   ⚠️ WARNING: tripId is temporary, not a FileMaker PrimaryKey!');
+        } else {
+          DebugLogger.success('   │   ✅ Using valid FileMaker PrimaryKey: $tripIdValue');
+          DebugLogger.log('   │   ✅ This PrimaryKey will link the stop to the trip in FileMaker');
+        }
+      } else {
+        DebugLogger.warn('   │   ⚠️ tripId is null in payload');
       }
       
       // Format timestamp for FileMaker (ISO 8601 without milliseconds)
@@ -354,84 +515,182 @@ class OfflineSyncService extends ChangeNotifier {
         fieldData.remove('createdAt'); // Remove createdAt - FileMaker uses CreationTimestamp instead (auto-generated)
       }
       
+      // Remove deleted flag (local-only), but keep deleted_at for FileMaker
+      fieldData.remove('deleted');
+      fieldData.remove('deletedAt'); // camelCase variant (shouldn't exist but just in case)
+      DebugLogger.log('   │   Removed deleted flag (local-only, kept deleted_at)');
+      
       // Remove null values - FileMaker doesn't accept null
       fieldData.removeWhere((key, value) => value == null);
       
-      DebugLogger.log('Stop fieldData: $fieldData');
-      DebugLogger.log('Stop fieldData keys: ${fieldData.keys.toList()}');
-      DebugLogger.log('Stop fieldData values: ${fieldData.values.map((v) => v?.toString().substring(0, v.toString().length > 50 ? 50 : v.toString().length)).toList()}');
+      DebugLogger.log('   │   Final field data keys: ${fieldData.keys.toList()}');
+      DebugLogger.log('   │   Field count: ${fieldData.length}');
       
       if (op == 'create') {
-        DebugLogger.info('Creating stop: ${stop.id}');
-        DebugLogger.log('Stop details: tripId=${stop.tripId}, clientId=${stop.clientId}, kind=${stop.kind}, status=${stop.status}');
+        DebugLogger.log('   │ STEP 4: Creating stop in FileMaker...');
+        DebugLogger.log('   │   Stop ID: ${stop.id}');
+        DebugLogger.log('   │   Client ID: ${stop.clientId}');
+        DebugLogger.log('   │   Kind: ${stop.kind}');
         
         // Ensure the trip exists in FileMaker before creating the stop
-        DebugLogger.log('🔍 Checking if trip exists in FileMaker: ${stop.tripId}');
-        final tripRecordId = await fileMakerService.findRecordIdByPrimaryKey('api_trips', stop.tripId);
+        // IMPORTANT: stop.tripId must be the PrimaryKey from dapi-api_trips
+        // Relationship: dapi-api_trips.PrimaryKey = dapi-api_stops.tripId
+        DebugLogger.log('   │ STEP 5: Verifying trip exists in FileMaker...');
+        DebugLogger.log('   │   Trip ID from stop: ${stop.tripId}');
+        DebugLogger.log('   │   Relationship: dapi-api_trips.PrimaryKey = dapi-api_stops.tripId');
+        
+        // Check if tripId is a temporary ID (starts with "trip_")
+        // If so, skip PrimaryKey search and go straight to driverId/date/direction search
+        bool isTemporaryId = stop.tripId.startsWith('trip_');
+        String? tripRecordId;
+        
+        if (!isTemporaryId) {
+          // Try to find by PrimaryKey first (only if not a temporary ID)
+          DebugLogger.log('   │   Searching FileMaker by PrimaryKey: ${stop.tripId}');
+          tripRecordId = await fileMakerService.findRecordIdByPrimaryKey('dapi-api_trips', stop.tripId);
+          
+          if (tripRecordId != null) {
+            DebugLogger.success('   │   ✅ Trip found in FileMaker by PrimaryKey (recordId: $tripRecordId)');
+          } else {
+            DebugLogger.warn('   │   ⚠️ Trip not found in FileMaker by PrimaryKey: ${stop.tripId}');
+            DebugLogger.warn('   │   ⚠️ This PrimaryKey may be invalid or the trip was deleted from FileMaker');
+          }
+        } else {
+          DebugLogger.log('   │   Trip ID is temporary (starts with "trip_"), skipping PrimaryKey search');
+          DebugLogger.log('   │   Will search by driverId/date/direction instead');
+        }
         
         if (tripRecordId == null) {
-          DebugLogger.warn('⚠️ Trip ${stop.tripId} not found in FileMaker. Attempting to sync trip first...');
+          DebugLogger.warn('   │   ⚠️ Trip not found in FileMaker by PrimaryKey: ${stop.tripId}');
+          DebugLogger.warn('   │   ⚠️ This tripId may be:');
+          DebugLogger.warn('   │     1. A temporary ID (starts with "trip_")');
+          DebugLogger.warn('   │     2. An old/invalid PrimaryKey from a previous sync');
+          DebugLogger.warn('   │     3. A PrimaryKey that was deleted from FileMaker');
+          DebugLogger.log('   │   Searching for trip by driverId/date/direction...');
           
-          // Try to find the trip in local database and sync it
+          // Try to find the trip in local database to get driverId/date/direction
           try {
+            DebugLogger.log('   │   Looking up trip in local database with ID: ${stop.tripId}');
             final tripQuery = _database.select(_database.trips)
               ..where((t) => t.id.equals(stop.tripId));
               final tripData = await tripQuery.getSingleOrNull();
               
               if (tripData != null) {
-                DebugLogger.log('📦 Found trip in local database, syncing it now...');
-                final trip = models.Trip(
-                  id: tripData.id,
-                  date: tripData.date,
-                  routeName: tripData.routeName,
-                  driverId: tripData.driverId,
-                  vehicleId: tripData.vehicleId,
-                  direction: tripData.direction,
-                  status: tripData.status,
-                  createdAt: tripData.createdAt,
+                DebugLogger.log('   │   ✅ Found trip in local database');
+                DebugLogger.log('   │   Local trip details:');
+                DebugLogger.log('   │     - ID: ${tripData.id}');
+                DebugLogger.log('   │     - driverId: ${tripData.driverId}');
+                DebugLogger.log('   │     - date: ${tripData.date}');
+                DebugLogger.log('   │     - direction: ${tripData.direction}');
+                DebugLogger.log('   │   Searching FileMaker for existing trip by driverId/date/direction...');
+                
+                // First, try to find existing trip in FileMaker by driverId, date, direction
+                final dateStr = '${tripData.date.month.toString().padLeft(2, '0')}/${tripData.date.day.toString().padLeft(2, '0')}/${tripData.date.year}';
+                DebugLogger.log('   │   FileMaker search query:');
+                DebugLogger.log('   │     - driverId: ${tripData.driverId}');
+                DebugLogger.log('   │     - date: $dateStr');
+                DebugLogger.log('   │     - direction: ${tripData.direction}');
+                
+                final existingTripPrimaryKey = await fileMakerService.findTripPrimaryKey(
+                  tripData.driverId,
+                  dateStr,
+                  tripData.direction,
                 );
                 
-                // Sync the trip first
-                final tripSyncPayload = SyncHelpers.prepareTripForSync(trip);
-                final tripSynced = await _syncTrip(tripSyncPayload, 'create');
-                
-                if (tripSynced) {
-                  DebugLogger.success('✅ Trip synced successfully, proceeding with stop creation');
+                if (existingTripPrimaryKey != null) {
+                  DebugLogger.success('   │   ✅ Found existing trip in FileMaker with PrimaryKey: $existingTripPrimaryKey');
+                  DebugLogger.log('   │   Updating local trip ID from ${stop.tripId} to $existingTripPrimaryKey');
+                  
+                  // Update the local trip ID and all stops that reference it
+                  final oldTripId = stop.tripId;
+                  await (_database.update(_database.trips)..where((t) => t.id.equals(oldTripId)))
+                      .write(TripsCompanion(id: Value(existingTripPrimaryKey)));
+                  await (_database.update(_database.stops)..where((s) => s.tripId.equals(oldTripId)))
+                      .write(StopsCompanion(tripId: Value(existingTripPrimaryKey)));
+                  
+                  // Update the stop object's tripId for this sync
+                  stop = stop.copyWith(tripId: existingTripPrimaryKey);
+                  // IMPORTANT: Also update fieldData with the new tripId!
+                  fieldData['tripId'] = existingTripPrimaryKey;
+                  DebugLogger.success('   │   ✅ Local trip and stops updated with FileMaker PrimaryKey');
+                  DebugLogger.log('   │   ✅ fieldData.tripId updated to: $existingTripPrimaryKey');
                 } else {
-                  DebugLogger.error('❌ Failed to sync trip. Stop creation may fail if FileMaker enforces trip relationship.', null);
+                  DebugLogger.log('   │   No existing trip found, creating new trip in FileMaker...');
+                  final trip = models.Trip(
+                    id: tripData.id,
+                    date: tripData.date,
+                    routeName: tripData.routeName,
+                    driverId: tripData.driverId,
+                    vehicleId: tripData.vehicleId,
+                    direction: tripData.direction,
+                    status: tripData.status,
+                    createdAt: tripData.createdAt,
+                  );
+                  
+                  // Sync the trip first
+                  final tripSyncPayload = SyncHelpers.prepareTripForSync(trip);
+                  final tripPrimaryKey = await _syncTrip(tripSyncPayload, 'create');
+                  
+                  if (tripPrimaryKey != null && tripPrimaryKey != stop.tripId) {
+                    DebugLogger.success('   │   ✅ Trip synced with PrimaryKey: $tripPrimaryKey');
+                    DebugLogger.log('   │   Updating local trip ID from ${stop.tripId} to $tripPrimaryKey');
+                    
+                    // Update the local trip ID and all stops that reference it
+                    final oldTripId = stop.tripId;
+                    await (_database.update(_database.trips)..where((t) => t.id.equals(oldTripId)))
+                        .write(TripsCompanion(id: Value(tripPrimaryKey)));
+                    await (_database.update(_database.stops)..where((s) => s.tripId.equals(oldTripId)))
+                        .write(StopsCompanion(tripId: Value(tripPrimaryKey)));
+                    
+                    // Update the stop object's tripId for this sync
+                    stop = stop.copyWith(tripId: tripPrimaryKey);
+                    // IMPORTANT: Also update fieldData with the new tripId!
+                    fieldData['tripId'] = tripPrimaryKey;
+                    DebugLogger.success('   │   ✅ Local trip and stops updated with FileMaker PrimaryKey');
+                    DebugLogger.log('   │   ✅ fieldData.tripId updated to: $tripPrimaryKey');
+                  } else if (tripPrimaryKey == null) {
+                    DebugLogger.error('   │   ❌ Failed to sync trip', null);
+                  }
                 }
               } else {
-                DebugLogger.error('❌ Trip ${stop.tripId} not found in local database either. Stop may fail to sync.', null);
+                DebugLogger.error('   │   ❌ Trip not found in local database', null);
               }
             } catch (e, stackTrace) {
-              DebugLogger.error('Error syncing trip before stop', e, stackTrace);
+              DebugLogger.error('   │   Error syncing trip before stop', e, stackTrace);
             }
         } else {
-          DebugLogger.log('✅ Trip exists in FileMaker (recordId: $tripRecordId)');
+          DebugLogger.success('   │   ✅ Trip exists in FileMaker (recordId: $tripRecordId)');
         }
         
-        final recordId = await fileMakerService.createRecord('api_stops', fieldData);
+        DebugLogger.log('   │ STEP 6: Sending stop to FileMaker API...');
+        DebugLogger.log('   │   Layout: dapi-api_stops');
+        DebugLogger.log('   │   Field count: ${fieldData.length}');
+        final recordId = await fileMakerService.createRecord('dapi-api_stops', fieldData);
         if (recordId != null) {
-          DebugLogger.success('✅ Stop created successfully in FileMaker with recordId: $recordId');
-          DebugLogger.log('Stop PrimaryKey: ${stop.id}, FileMaker recordId: $recordId');
+          DebugLogger.success('   │   ✅ Stop created in FileMaker');
+          DebugLogger.log('   │   FileMaker recordId: $recordId');
+          DebugLogger.log('   │   Stop PrimaryKey: ${stop.id}');
+          DebugLogger.success('   └─ SYNC STOP: SUCCESS');
+          return true;
         } else {
-          DebugLogger.error('❌ Stop creation returned null recordId', null);
-          DebugLogger.log('This usually means FileMaker rejected the record. Check:');
-          DebugLogger.log('1. Does the api_stops layout exist?');
-          DebugLogger.log('2. Do all field names match exactly?');
-          DebugLogger.log('3. Are required fields present?');
-          DebugLogger.log('4. Check FileMaker Data API error logs');
+          DebugLogger.error('   │   ❌ Stop creation failed - null recordId', null);
+          DebugLogger.log('   │   Possible reasons:');
+          DebugLogger.log('   │   1. Layout dapi-api_stops doesn\'t exist');
+          DebugLogger.log('   │   2. Field names don\'t match');
+          DebugLogger.log('   │   3. Required fields missing');
+          DebugLogger.log('   │   4. FileMaker validation error');
+          DebugLogger.error('   └─ SYNC STOP: FAILED', null);
+          return false;
         }
-        return recordId != null;
       } else if (op == 'update' && stop.id != null) {
         DebugLogger.info('Updating stop: ${stop.id}');
         // For updates, we need to find the FileMaker recordId by PrimaryKey first
         // because stop.id is a string PrimaryKey, not a numeric recordId
         try {
-          final recordId = await fileMakerService.findRecordIdByPrimaryKey('api_stops', stop.id!);
+          final recordId = await fileMakerService.findRecordIdByPrimaryKey('dapi-api_stops', stop.id!);
           if (recordId != null) {
             DebugLogger.log('Found FileMaker recordId: $recordId for PrimaryKey: ${stop.id}');
-            final success = await fileMakerService.updateRecord('api_stops', recordId, fieldData);
+            final success = await fileMakerService.updateRecord('dapi-api_stops', recordId, fieldData);
             if (success) {
               DebugLogger.success('Stop updated successfully');
             } else {
@@ -503,9 +762,9 @@ class OfflineSyncService extends ChangeNotifier {
       if (op == 'create') {
         DebugLogger.info('Creating attendance: ${attendance.id}');
         DebugLogger.log('Attendance details: clientId=${attendance.clientId}, timeIn=${attendance.timeIn}, timeOut=${attendance.timeOut}, capturedBy=${attendance.capturedBy}');
-        DebugLogger.log('Sending to FileMaker layout: api_attendances');
+        DebugLogger.log('Sending to FileMaker layout: dapi-api_attendances');
         DebugLogger.log('Field names being sent: ${fieldData.keys.join(", ")}');
-        var recordId = await fileMakerService.createRecord('api_attendances', fieldData);
+        var recordId = await fileMakerService.createRecord('dapi-api_attendances', fieldData);
         
         // If regular creation fails, try manual method as fallback
         if (recordId == null) {
@@ -534,8 +793,8 @@ class OfflineSyncService extends ChangeNotifier {
         } else {
           DebugLogger.error('❌ Attendance creation returned null recordId', null);
           DebugLogger.log('This usually means FileMaker rejected the record. Check:');
-          DebugLogger.log('1. Does the api_attendances layout exist?');
-          DebugLogger.log('2. Are all field names on the api_attendances layout? (case-sensitive)');
+          DebugLogger.log('1. Does the dapi-api_attendances layout exist?');
+          DebugLogger.log('2. Are all field names on the dapi-api_attendances layout? (case-sensitive)');
           DebugLogger.log('3. Is the date field set to auto-enter from CreationTimestamp?');
           DebugLogger.log('4. Are there any script triggers that might be validating?');
           DebugLogger.log('5. Do all field names match exactly? (case-sensitive)');
@@ -550,7 +809,7 @@ class OfflineSyncService extends ChangeNotifier {
           String? recordId;
           
           // First try to find by PrimaryKey (in case FileMaker accepted our PrimaryKey)
-          recordId = await fileMakerService.findRecordIdByPrimaryKey('api_attendances', attendance.id!);
+          recordId = await fileMakerService.findRecordIdByPrimaryKey('dapi-api_attendances', attendance.id!);
           
           // If not found by PrimaryKey, try finding by clientId + timeIn
           if (recordId == null && attendance.timeIn != null) {
@@ -563,7 +822,7 @@ class OfflineSyncService extends ChangeNotifier {
             // Remove fields that FileMaker auto-manages or cannot be modified
             fieldData.remove('PrimaryKey'); // FileMaker auto-generates PrimaryKey, cannot be modified
             fieldData.remove('date'); // FileMaker auto-generates date from CreationTimestamp
-            final success = await fileMakerService.updateRecord('api_attendances', recordId, fieldData);
+            final success = await fileMakerService.updateRecord('dapi-api_attendances', recordId, fieldData);
             if (success) {
               DebugLogger.success('Attendance updated successfully');
             } else {

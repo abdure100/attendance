@@ -51,3 +51,10 @@ ios/build/
 lib/config/app_config.dart
 .env
 ios/Flutter/Flutter.xcframework/
+
+# Android release signing
+android/key.properties
+android/app/*.keystore
+android/app/*.jks
+*.keystore
+*.jks

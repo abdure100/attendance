@@ -11,7 +11,7 @@ The app syncs three main entities to FileMaker:
 
 ## Required Tables/Layouts
 
-### 1. Trips Table (`api_trips`)
+### 1. Trips Table (`dapi-api_trips`)
 
 **Purpose:** Store driver routes for each day
 
@@ -32,14 +32,14 @@ The app syncs three main entities to FileMaker:
 - `driverId` → `api_staffs::PrimaryKey` (many-to-one)
 
 **Notes:**
-- Create a layout named `api_trips` for API access
+- Create a layout named `dapi-api_trips` for API access
 - Set `PrimaryKey` to auto-enter UUID
 - `CreationTimestamp` and `ModificationTimestamp` are automatically managed by FileMaker - do NOT send these from the app
 - The app will read these fields but should not include them in create/update operations
 
 ---
 
-### 2. Stops Table (`api_stops`)
+### 2. Stops Table (`dapi-api_stops`)
 
 **Purpose:** Store individual pickup/dropoff events with GPS data
 
@@ -47,9 +47,10 @@ The app syncs three main entities to FileMaker:
 | Field Name | Type | Notes |
 |------------|------|-------|
 | `PrimaryKey` | Text (UUID) | Primary key, auto-generated |
-| `tripId` | Text (UUID) | Foreign key to `api_trips` |
+| `tripId` | Text (UUID) | Foreign key to `dapi-api_trips` |
 | `clientId` | Text (UUID) | Foreign key to `api_patients` |
 | `kind` | Text | "pickup" or "dropoff" |
+| `direction` | Text | "AM" or "PM" - from parent trip (for data integrity) |
 | `plannedLatLng` | Text | "lat,lng" format (optional) |
 | `actualLatLng` | Text | "lat,lng" format |
 | `actualAddress` | Text | Reverse-geocoded address |
@@ -64,11 +65,13 @@ The app syncs three main entities to FileMaker:
 | `ModificationTimestamp` | Timestamp | Auto-managed by FileMaker |
 
 **Relationships:**
-- `tripId` → `api_trips::PrimaryKey` (many-to-one)
+- `tripId` → `dapi-api_trips::PrimaryKey` (many-to-one)
+  - **IMPORTANT:** `dapi-api_stops.tripId` must equal `dapi-api_trips.PrimaryKey`
+  - The app uses the trip's PrimaryKey as the tripId when creating stops
 - `clientId` → `api_patients::PrimaryKey` (many-to-one)
 
 **Notes:**
-- Create a layout named `api_stops` for API access
+- Create a layout named `dapi-api_stops` for API access
 - Consider adding calculated fields for:
   - `latitude` (Number) - extracted from `actualLatLng`
   - `longitude` (Number) - extracted from `actualLatLng`
@@ -77,7 +80,7 @@ The app syncs three main entities to FileMaker:
 
 ---
 
-### 3. Attendance Table (`api_attendances`)
+### 3. Attendance Table (`dapi-api_attendances`)
 
 **Purpose:** Store time-in/out records for center staff
 
@@ -99,7 +102,7 @@ The app syncs three main entities to FileMaker:
 - `capturedBy` → `api_staffs::PrimaryKey` (many-to-one)
 
 **Notes:**
-- Create a layout named `api_attendances` for API access
+- Create a layout named `dapi-api_attendances` for API access
 - Consider adding calculated fields:
   - `duration` (Number) - minutes between timeIn and timeOut
   - `isComplete` (Boolean) - true if both timeIn and timeOut exist
@@ -157,16 +160,16 @@ The app syncs three main entities to FileMaker:
 ## Relationships Graph
 
 ```
-api_staffs (1) ──< (many) api_trips
-api_trips (1) ──< (many) api_stops
-api_patients (1) ──< (many) api_stops
-api_patients (1) ──< (many) api_attendances
-api_staffs (1) ──< (many) api_attendances (via capturedBy)
+api_staffs (1) ──< (many) dapi-api_trips
+dapi-api_trips (1) ──< (many) dapi-api_stops
+api_patients (1) ──< (many) dapi-api_stops
+api_patients (1) ──< (many) dapi-api_attendances
+api_staffs (1) ──< (many) dapi-api_attendances (via capturedBy)
 ```
 
 ## API Access Setup
 
-For each layout (`api_trips`, `api_stops`, `api_attendances`, `api_patients`):
+For each layout (`dapi-api_trips`, `dapi-api_stops`, `dapi-api_attendances`, `api_patients`):
 
 1. **Enable Data API:**
    - File → Manage → Security → Privilege Sets
@@ -212,11 +215,11 @@ When implementing sync in `OfflineSyncService`:
 
 1. **Create Operations:**
    - Use `POST /databases/{database}/layouts/{layout}/records`
-   - Example: `POST /databases/EIDBI/layouts/api_trips/records`
+   - Example: `POST /databases/EIDBI/layouts/dapi-api_trips/records`
 
 2. **Update Operations:**
    - Use `PATCH /databases/{database}/layouts/{layout}/records/{recordId}`
-   - Example: `PATCH /databases/EIDBI/layouts/api_trips/records/{PrimaryKey}`
+   - Example: `PATCH /databases/EIDBI/layouts/dapi-api_trips/records/{PrimaryKey}`
 
 3. **Field Mapping:**
    - Map Dart model fields to FileMaker field names exactly
@@ -240,11 +243,11 @@ When implementing sync in `OfflineSyncService`:
 
 ```filemaker
 // If kind = "dropoff", check if pickup exists
-If [ api_stops::kind = "dropoff" ]
-    Set Variable [ $tripId ; api_stops::tripId ]
-    Set Variable [ $clientId ; api_stops::clientId ]
+If [ dapi-api_stops::kind = "dropoff" ]
+    Set Variable [ $tripId ; dapi-api_stops::tripId ]
+    Set Variable [ $clientId ; dapi-api_stops::clientId ]
     
-    Perform Find [ api_stops::tripId = $tripId AND api_stops::clientId = $clientId AND api_stops::kind = "pickup" ]
+    Perform Find [ dapi-api_stops::tripId = $tripId AND dapi-api_stops::clientId = $clientId AND dapi-api_stops::kind = "pickup" ]
     
     If [ Get(FoundCount) = 0 ]
         Show Custom Dialog [ "Error: Cannot drop off without pickup" ]
@@ -255,9 +258,9 @@ End If
 
 ## Testing Checklist
 
-- [ ] Create `api_trips` layout with all required fields
-- [ ] Create `api_stops` layout with all required fields
-- [ ] Create `api_attendances` layout with all required fields
+- [ ] Create `dapi-api_trips` layout with all required fields
+- [ ] Create `dapi-api_stops` layout with all required fields
+- [ ] Create `dapi-api_attendances` layout with all required fields
 - [ ] Add new fields to `api_patients` layout
 - [ ] Verify `api_staffs` has `role` field
 - [ ] Set up relationships between tables

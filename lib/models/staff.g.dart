@@ -14,6 +14,7 @@ Staff _$StaffFromJson(Map<String, dynamic> json) => Staff(
       role: json['Role'] as String?,
       active: _boolFromJson(json['active']),
       allowManualEntry: _intFromJson(json['Allow_manual_entry']),
+      signatureRequired: _signatureRequiredFromJson(json['signatureRequired']),
     );
 
 Map<String, dynamic> _$StaffToJson(Staff instance) => <String, dynamic>{
@@ -24,4 +25,5 @@ Map<String, dynamic> _$StaffToJson(Staff instance) => <String, dynamic>{
       'Role': instance.role,
       'active': instance.active,
       'Allow_manual_entry': instance.allowManualEntry,
+      'signatureRequired': instance.signatureRequired,
     };

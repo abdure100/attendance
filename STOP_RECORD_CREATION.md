@@ -2,11 +2,11 @@
 
 ## Overview
 
-When a staff member clicks "Pick Up" on a client in the Driver Route, the app creates a **Stop** record in FileMaker's `api_stops` table.
+When a staff member clicks "Pick Up" on a client in the Driver Route, the app creates a **Stop** record in FileMaker's `dapi-api_stops` table.
 
 ## What Gets Created
 
-### Table: `api_stops`
+### Table: `dapi-api_stops`
 
 When you click "Pick Up", the following record is created:
 
@@ -35,13 +35,13 @@ When you click "Pick Up", the following record is created:
 3. **App reverse geocodes** the address
 4. **App creates Stop record locally** in SQLite database
 5. **App queues for sync** to FileMaker
-6. **Sync service creates record** in FileMaker's `api_stops` table
+6. **Sync service creates record** in FileMaker's `dapi-api_stops` table
 
 ## FileMaker Setup Requirements
 
-### Layout: `api_stops`
+### Layout: `dapi-api_stops`
 
-Create a layout named `api_stops` with the following fields:
+Create a layout named `dapi-api_stops` with the following fields:
 
 1. **PrimaryKey** (Text)
    - Auto-enter: UUID
@@ -50,7 +50,7 @@ Create a layout named `api_stops` with the following fields:
 
 2. **tripId** (Text)
    - Required: Yes
-   - Relationship: → `api_trips::PrimaryKey`
+   - Relationship: → `dapi-api_trips::PrimaryKey`
 
 3. **clientId** (Text)
    - Required: Yes
@@ -104,7 +104,7 @@ Create a layout named `api_stops` with the following fields:
 
 1. **Check if layout exists:**
    - Open FileMaker
-   - Verify `api_stops` layout exists
+   - Verify `dapi-api_stops` layout exists
    - Verify all fields are present
 
 2. **Check field names:**
@@ -118,7 +118,7 @@ Create a layout named `api_stops` with the following fields:
    - If you see `"❌ Stop creation returned null recordId"`, check FileMaker error logs
 
 4. **Verify in FileMaker:**
-   - Open `api_stops` layout
+   - Open `dapi-api_stops` layout
    - Look for the new record
    - Verify all fields are populated correctly
 
@@ -127,7 +127,7 @@ Create a layout named `api_stops` with the following fields:
 ### Issue: "Stop creation returned null recordId"
 
 **Possible causes:**
-1. Layout `api_stops` doesn't exist
+1. Layout `dapi-api_stops` doesn't exist
 2. Field names don't match (check case sensitivity)
 3. Required fields are missing
 4. Field types don't match (e.g., timestamp format)
@@ -137,7 +137,7 @@ Create a layout named `api_stops` with the following fields:
 1. Check app logs for detailed error messages
 2. Verify layout and field names in FileMaker
 3. Check FileMaker Data API error logs
-4. Verify Data API access is enabled for `api_stops` layout
+4. Verify Data API access is enabled for `dapi-api_stops` layout
 
 ### Issue: Stop shows as "Picked" but no record in FileMaker
 

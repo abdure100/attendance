@@ -1,10 +1,13 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../services/filemaker_service.dart';
 import '../services/auth_service.dart';
 import '../utils/debug_logger.dart';
 import '../models/staff.dart';
 import '../config/app_config.dart';
+import '../database/app_database.dart';
 import 'driver_home_page.dart';
 
 class LoginPage extends StatefulWidget {
@@ -20,11 +23,78 @@ class _LoginPageState extends State<LoginPage> {
   final _passwordController = TextEditingController();
   bool _isLoading = false;
   bool _obscurePassword = true;
+  bool _rememberMe = false;
+
+  // Keys for SharedPreferences
+  static const String _keyRememberMe = 'remember_me';
+  static const String _keySavedUsername = 'saved_username';
+  static const String _keySavedPassword = 'saved_password';
 
   @override
   void initState() {
     super.initState();
-    // User must enter their own credentials
+    _loadSavedCredentials();
+  }
+
+  /// Load saved credentials if "Remember Me" was enabled
+  Future<void> _loadSavedCredentials() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final rememberMe = prefs.getBool(_keyRememberMe) ?? false;
+      
+      if (rememberMe) {
+        final savedUsername = prefs.getString(_keySavedUsername);
+        final savedPasswordEncoded = prefs.getString(_keySavedPassword);
+        
+        if (savedUsername != null && savedPasswordEncoded != null) {
+          // Decode the password (simple base64 encoding for basic obfuscation)
+          final savedPassword = _decodePassword(savedPasswordEncoded);
+          
+          setState(() {
+            _usernameController.text = savedUsername;
+            _passwordController.text = savedPassword;
+            _rememberMe = true;
+          });
+          
+          DebugLogger.info('📝 Loaded saved credentials for: $savedUsername');
+        }
+      }
+    } catch (e) {
+      DebugLogger.error('Error loading saved credentials', e);
+    }
+  }
+
+  /// Save credentials if "Remember Me" is enabled
+  Future<void> _saveCredentials(String username, String password) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      
+      if (_rememberMe) {
+        await prefs.setBool(_keyRememberMe, true);
+        await prefs.setString(_keySavedUsername, username);
+        // Encode the password (simple base64 encoding for basic obfuscation)
+        await prefs.setString(_keySavedPassword, _encodePassword(password));
+        DebugLogger.info('📝 Saved credentials for: $username');
+      } else {
+        // Clear saved credentials
+        await prefs.remove(_keyRememberMe);
+        await prefs.remove(_keySavedUsername);
+        await prefs.remove(_keySavedPassword);
+        DebugLogger.info('📝 Cleared saved credentials');
+      }
+    } catch (e) {
+      DebugLogger.error('Error saving credentials', e);
+    }
+  }
+
+  /// Simple password encoding (base64)
+  String _encodePassword(String password) {
+    return base64Encode(utf8.encode(password));
+  }
+
+  /// Simple password decoding (base64)
+  String _decodePassword(String encoded) {
+    return utf8.decode(base64Decode(encoded));
   }
 
   @override
@@ -74,6 +144,36 @@ class _LoginPageState extends State<LoginPage> {
       // Check if staff is active
       if (staff.active == false) {
         throw Exception('Account is inactive');
+      }
+      
+      // Save credentials if "Remember Me" is enabled
+      await _saveCredentials(email, password);
+      
+      // Step 2.5: Clear all local data for fresh start
+      DebugLogger.log('🗑️ LOGIN: Step 2.5 - Clearing all local data...');
+      try {
+        final database = Provider.of<AppDatabase>(context, listen: false);
+        
+        // Clear stops first (foreign key to trips)
+        await database.delete(database.stops).go();
+        DebugLogger.log('   ✅ Cleared stops table');
+        
+        // Clear trips
+        await database.delete(database.trips).go();
+        DebugLogger.log('   ✅ Cleared trips table');
+        
+        // Clear outboxes (pending sync items)
+        await database.delete(database.outboxes).go();
+        DebugLogger.log('   ✅ Cleared outboxes table (pending sync items)');
+        
+        // Clear local attendance records
+        await database.delete(database.attendances).go();
+        DebugLogger.log('   ✅ Cleared attendances table');
+        
+        DebugLogger.success('✅ All local data cleared successfully');
+      } catch (e, stackTrace) {
+        DebugLogger.error('Error clearing local data', e, stackTrace);
+        // Continue with login even if clearing fails
       }
       
       // Step 3: Exchange FileMaker token for Sanctum token (no re-authentication needed)
@@ -202,39 +302,6 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
-  /// Generate random test credentials
-  void _generateTestCredentials() {
-    // List of test users
-    final testUsers = [
-      {'email': 'test@sphereemr.com', 'password': 'Test123\$'},
-      {'email': 'admin@sphereemr.com', 'password': 'Admin123\$'},
-      {'email': 'driver@sphereemr.com', 'password': 'Driver123\$'},
-      {'email': 'staff@sphereemr.com', 'password': 'Staff123\$'},
-      {'email': 'user@sphereemr.com', 'password': 'User123\$'},
-      {'email': 'demo@sphereemr.com', 'password': 'Demo123\$'},
-    ];
-    
-    // Pick a random test user
-    final random = DateTime.now().millisecondsSinceEpoch % testUsers.length;
-    final selectedUser = testUsers[random];
-    
-    setState(() {
-      _usernameController.text = selectedUser['email']!;
-      _passwordController.text = selectedUser['password']!;
-    });
-    
-    // Show a snackbar with the generated credentials
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Generated: ${selectedUser['email']}'),
-          duration: const Duration(seconds: 2),
-          backgroundColor: Colors.blue,
-        ),
-      );
-    }
-  }
-
   /// Show layout selection dialog for Admin/Supervisor/superAdmin
   Future<void> _showLayoutSelectionDialog(Staff staff) async {
     final result = await showDialog<String>(
@@ -334,11 +401,11 @@ class _LoginPageState extends State<LoginPage> {
                             // Logo
                             Image.asset(
                               'assets/images/sphere.png',
-                              height: 500,
-                              width: 500,
+                              height: 200,
+                              width: 200,
                               fit: BoxFit.contain,
                             ),
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 8),
                       Text(
                         'Attendance & Tripsheet',
                         style: Theme.of(context).textTheme.headlineMedium?.copyWith(
@@ -401,65 +468,29 @@ class _LoginPageState extends State<LoginPage> {
                         },
                         enabled: !_isLoading,
                       ),
-                      const SizedBox(height: 24),
+                      const SizedBox(height: 12),
 
-                      // Quick Login Buttons - Test Users
+                      // Remember Me Checkbox
                       Row(
                         children: [
-                          Expanded(
-                            child: OutlinedButton(
-                              onPressed: _isLoading ? null : () {
-                                _usernameController.text = 'sacdiya@sphereemr.com';
-                                _passwordController.text = 'Welcome123\$';
-                              },
-                              style: OutlinedButton.styleFrom(
-                                padding: const EdgeInsets.symmetric(vertical: 12),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                              ),
-                              child: const Text(
-                                'Sacdiya - Staff',
-                                style: TextStyle(fontSize: 14),
-                              ),
-                            ),
+                          Checkbox(
+                            value: _rememberMe,
+                            onChanged: _isLoading ? null : (value) {
+                              setState(() => _rememberMe = value ?? false);
+                            },
                           ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: OutlinedButton(
-                              onPressed: _isLoading ? null : () {
-                                _usernameController.text = 'aisha@sphereemr.com';
-                                _passwordController.text = 'Welcome123\$';
-                              },
-                              style: OutlinedButton.styleFrom(
-                                padding: const EdgeInsets.symmetric(vertical: 12),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                              ),
-                              child: const Text(
-                                'Aisha - Driver',
-                                style: TextStyle(fontSize: 14),
-                              ),
+                          GestureDetector(
+                            onTap: _isLoading ? null : () {
+                              setState(() => _rememberMe = !_rememberMe);
+                            },
+                            child: const Text(
+                              'Remember Me',
+                              style: TextStyle(fontSize: 14),
                             ),
                           ),
                         ],
                       ),
-                      const SizedBox(height: 12),
-                      
-                      // Test User Generator Button
-                      OutlinedButton.icon(
-                        onPressed: _isLoading ? null : _generateTestCredentials,
-                        icon: const Icon(Icons.shuffle, size: 18),
-                        label: const Text('Generate Test Credentials'),
-                        style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 24),
 
                       // Login Button
                       SizedBox(

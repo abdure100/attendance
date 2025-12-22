@@ -615,9 +615,18 @@ class FileMakerService extends ChangeNotifier {
         
         DebugLogger.log('Stored session variables - StaffId: $_currentStaffId, CompanyId: $_currentCompanyId');
         
+        // Debug: Log signatureRequired field from FileMaker
+        final signatureRequiredRaw = fieldData['signatureRequired'];
+        DebugLogger.info('📝 signatureRequired from FileMaker: $signatureRequiredRaw (type: ${signatureRequiredRaw.runtimeType})');
+        
         try {
           final staff = Staff.fromJson(fieldData);
           DebugLogger.success('Successfully parsed staff: ${staff.name}');
+          DebugLogger.info('📝 Parsed signatureRequired: ${staff.signatureRequired?.toJson()}');
+          DebugLogger.info('   - requiresPickupSignature: ${staff.requiresPickupSignature}');
+          DebugLogger.info('   - requiresDropoffSignature: ${staff.requiresDropoffSignature}');
+          DebugLogger.info('   - requiresTimeInSignature: ${staff.requiresTimeInSignature}');
+          DebugLogger.info('   - requiresTimeOutSignature: ${staff.requiresTimeOutSignature}');
           return staff;
         } catch (e, stackTrace) {
           DebugLogger.error('Error parsing staff data', e, stackTrace);
@@ -706,7 +715,7 @@ class FileMakerService extends ChangeNotifier {
       DebugLogger.log('Date value: $tripDate (type: ${tripDate.runtimeType})');
       DebugLogger.log('All field names: ${fieldData.keys.join(", ")}');
       
-      final recordId = await createRecord('api_trips', fieldData);
+      final recordId = await createRecord('dapi-api_trips', fieldData);
       
       if (recordId != null) {
         DebugLogger.success('✅ Manual trip creation successful! RecordId: $recordId');
@@ -763,7 +772,7 @@ class FileMakerService extends ChangeNotifier {
       DebugLogger.log('All field names: ${fieldData.keys.join(", ")}');
       DebugLogger.log('Note: date field not included - FileMaker will auto-generate it');
       
-      final recordId = await createRecord('api_attendances', fieldData);
+      final recordId = await createRecord('dapi-api_attendances', fieldData);
       
       if (recordId != null) {
         DebugLogger.success('✅ Manual attendance creation successful! RecordId: $recordId');
@@ -905,6 +914,154 @@ class FileMakerService extends ChangeNotifier {
     }
   }
 
+  /// Find a trip in FileMaker by driverId, date, and direction
+  /// Returns the PrimaryKey if found, null otherwise
+  Future<String?> findTripPrimaryKey(String driverId, String date, String direction) async {
+    await ensureAuthenticated();
+    
+    try {
+      final response = await _dio.post(
+        '/databases/$database/layouts/dapi-api_trips/_find',
+        data: {
+          // IMPORTANT: All criteria in ONE object = AND condition
+          // Multiple objects in array = OR condition
+          'query': [
+            {
+              'driverId': '==$driverId',
+              'date': '==$date',
+              'direction': '==$direction',
+            },
+          ],
+          'limit': 1
+        },
+        options: Options(
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer $_token',
+            'Accept': 'application/json',
+          },
+        ),
+      );
+
+      if (response.statusCode == 200) {
+        final data = response.data as Map<String, dynamic>;
+        final records = (data['response']?['data'] as List?) ?? const [];
+        
+        if (records.isNotEmpty) {
+          final primaryKey = records.first['fieldData']?['PrimaryKey']?.toString();
+          DebugLogger.log('Found trip in FileMaker with PrimaryKey: $primaryKey for driverId: $driverId, date: $date, direction: $direction');
+          return primaryKey;
+        }
+      }
+      
+      DebugLogger.log('Trip not found in FileMaker for driverId: $driverId, date: $date, direction: $direction');
+      return null;
+    } catch (e, stackTrace) {
+      DebugLogger.error('Error finding trip in FileMaker', e, stackTrace);
+      return null;
+    }
+  }
+
+  /// Get stops from FileMaker by tripId
+  /// Returns a list of stop data maps (excludes deleted stops where deleted_at is set)
+  Future<List<Map<String, dynamic>>> getStopsByTripId(String tripId) async {
+    await ensureAuthenticated();
+    
+    try {
+      DebugLogger.log('🔍 Fetching stops from FileMaker for tripId: $tripId (excluding deleted)');
+      final response = await _dio.post(
+        '/databases/$database/layouts/dapi-api_stops/_find',
+        data: {
+          'query': [
+            {
+              'tripId': '==$tripId',
+              'deleted_at': '=', // Empty = not deleted
+            },
+          ],
+        },
+        options: Options(
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer $_token',
+            'Accept': 'application/json',
+          },
+        ),
+      );
+
+      if (response.statusCode == 200) {
+        final data = response.data as Map<String, dynamic>;
+        final records = (data['response']?['data'] as List?) ?? const [];
+        
+        final stops = <Map<String, dynamic>>[];
+        for (final record in records) {
+          final fieldData = record['fieldData'] as Map<String, dynamic>?;
+          if (fieldData != null) {
+            stops.add(fieldData);
+          }
+        }
+        
+        DebugLogger.success('✅ Found ${stops.length} stops in FileMaker for tripId: $tripId');
+        return stops;
+      }
+      
+      DebugLogger.log('No stops found in FileMaker for tripId: $tripId');
+      return [];
+    } on DioException catch (e) {
+      // 401 means no records found (not an error)
+      if (e.response?.statusCode == 401) {
+        DebugLogger.log('No stops found in FileMaker for tripId: $tripId (401 response)');
+        return [];
+      }
+      DebugLogger.error('Error fetching stops from FileMaker', e, e.stackTrace);
+      return [];
+    } catch (e, stackTrace) {
+      DebugLogger.error('Error fetching stops from FileMaker', e, stackTrace);
+      return [];
+    }
+  }
+
+  /// Get PrimaryKey from a recordId
+  /// Returns the PrimaryKey field value if found, null otherwise
+  Future<String?> getPrimaryKeyFromRecordId(String layout, String recordId) async {
+    await ensureAuthenticated();
+    
+    try {
+      final response = await _dio.post(
+        '/databases/$database/layouts/$layout/_find',
+        data: {
+          'query': [
+            {'recordId': '==$recordId'}
+          ],
+          'limit': 1
+        },
+        options: Options(
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer $_token',
+            'Accept': 'application/json',
+          },
+        ),
+      );
+
+      if (response.statusCode == 200) {
+        final data = response.data as Map<String, dynamic>;
+        final records = (data['response']?['data'] as List?) ?? const [];
+        
+        if (records.isNotEmpty) {
+          final primaryKey = records.first['fieldData']?['PrimaryKey']?.toString();
+          DebugLogger.log('Found PrimaryKey: $primaryKey for recordId: $recordId in layout: $layout');
+          return primaryKey;
+        }
+      }
+      
+      DebugLogger.warn('PrimaryKey not found for recordId: $recordId in layout: $layout');
+      return null;
+    } catch (e, stackTrace) {
+      DebugLogger.error('Error getting PrimaryKey from recordId', e, stackTrace);
+      return null;
+    }
+  }
+
   /// Find attendance record by clientId and timeIn
   /// Returns the recordId if found, null otherwise
   Future<String?> findAttendanceRecordId(String clientId, String timeIn) async {
@@ -912,11 +1069,14 @@ class FileMakerService extends ChangeNotifier {
     
     try {
       final response = await _dio.post(
-        '/databases/$database/layouts/api_attendances/_find',
+        '/databases/$database/layouts/dapi-api_attendances/_find',
         data: {
+          // IMPORTANT: All criteria in ONE object = AND condition
           'query': [
-            {'clientId': '==$clientId'},
-            {'timeIn': '==$timeIn'},
+            {
+              'clientId': '==$clientId',
+              'timeIn': '==$timeIn',
+            },
           ],
           'limit': 1
         },
@@ -1030,6 +1190,7 @@ class FileMakerService extends ChangeNotifier {
     final visitData = visit.toJson();
     visitData['Appointment_date'] = '${visit.startTs.month.toString().padLeft(2, '0')}/${visit.startTs.day.toString().padLeft(2, '0')}/${visit.startTs.year}';
     visitData['start_ts'] = visit.startTs.toIso8601String().split('.')[0];
+    visitData['statusInput'] = 'Submitted'; // Set status to Submitted instead of draft
     
     // Add company ID if available
     if (_currentCompanyId != null) {
@@ -1077,6 +1238,7 @@ class FileMakerService extends ChangeNotifier {
     }
     
     visitData['update_flagx'] = 5; // Trigger processing in FileMaker
+    visitData['statusInput'] = 'Submitted'; // Set status to Submitted instead of draft
     
     // Get current location for start (skip for manual entries)
     if (!skipLocation) {
@@ -1536,11 +1698,15 @@ class FileMakerService extends ChangeNotifier {
     await _ensureAuthenticated();
     
     // Use FileMaker's _find endpoint to filter by clientId on the server
+    // IMPORTANT: All criteria in ONE object = AND condition
+    final queryObj = <String, dynamic>{
+      'clientId': '==$clientId',
+    };
+    if (ltgId != null) {
+      queryObj['ltgId'] = '==$ltgId';
+    }
     final query = {
-      'query': [
-        {'clientId': '==$clientId'},
-        if (ltgId != null) {'ltgId': '==$ltgId'},
-      ],
+      'query': [queryObj],
     };
 
 

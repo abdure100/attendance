@@ -32,7 +32,7 @@ Your app uses **environment variables** loaded from a `.env` file. This is the s
    FM_PASSWORD=your_filemaker_password
 
    # MCP API Configuration
-   MCP_BASE_URL=https://eidbi.sphereemr.com/api
+   MCP_BASE_URL=https://portal.sphereemr.com/api
 
    # Note Drafting API Configuration
    NOTE_DRAFTING_API_KEY=your_note_drafting_api_key

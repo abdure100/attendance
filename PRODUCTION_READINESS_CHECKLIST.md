@@ -9,7 +9,7 @@
 - [x] **password**: Set via `FM_PASSWORD` in `.env` - ✅ Set (verify if this is production password)
 
 ### MCP API Configuration
-- [x] **mcpBaseUrl**: `https://eidbi.sphereemr.com/api` - ✅ Updated for production
+- [x] **mcpBaseUrl**: `https://portal.sphereemr.com/api` - ✅ Updated for production
 - [ ] **sanctumToken**: Currently null - ⚠️ **NEEDS TO BE SET** at runtime from secure storage
 
 ### Note Drafting Configuration
@@ -130,7 +130,7 @@ class AppConfig {
 
 ## ✅ What's Ready
 
-1. ✅ MCP base URL configured: `https://eidbi.sphereemr.com/api`
+1. ✅ MCP base URL configured: `https://portal.sphereemr.com/api`
 2. ✅ MCP service implementation complete
 3. ✅ FileMaker service configured
 4. ✅ Note generation configured

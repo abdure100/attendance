@@ -16,6 +16,9 @@ class Stop {
   @JsonKey(name: 'kind')
   final String kind; // "pickup" | "dropoff"
   
+  @JsonKey(name: 'direction')
+  final String? direction; // "AM" | "PM" - from parent trip
+  
   @JsonKey(name: 'plannedLatLng')
   final String? plannedLatLng; // "lat,lng" format
   
@@ -37,20 +40,27 @@ class Stop {
   @JsonKey(name: 'photoPath')
   final String? photoPath;
   
-  @JsonKey(name: 'signaturePath')
-  final String? signaturePath;
+  @JsonKey(name: 'signatureBase64')
+  final String? signatureBase64; // Base64 encoded PNG signature
   
   @JsonKey(name: 'accuracy')
   final double? accuracy; // GPS accuracy in meters
   
   @JsonKey(name: 'speed')
   final double? speed; // Speed in m/s
+  
+  @JsonKey(name: 'deleted')
+  final int deleted; // 0 = not deleted, 1 = deleted
+  
+  @JsonKey(name: 'deleted_at')
+  final DateTime? deletedAt; // Soft delete timestamp
 
   const Stop({
     this.id,
     required this.tripId,
     required this.clientId,
     required this.kind,
+    this.direction,
     this.plannedLatLng,
     this.actualLatLng,
     this.actualAddress,
@@ -58,9 +68,11 @@ class Stop {
     this.status = 'pending',
     this.note,
     this.photoPath,
-    this.signaturePath,
+    this.signatureBase64,
     this.accuracy,
     this.speed,
+    this.deleted = 0,
+    this.deletedAt,
   });
 
   factory Stop.fromJson(Map<String, dynamic> json) => _$StopFromJson(json);
@@ -71,6 +83,7 @@ class Stop {
     String? tripId,
     String? clientId,
     String? kind,
+    String? direction,
     String? plannedLatLng,
     String? actualLatLng,
     String? actualAddress,
@@ -78,15 +91,18 @@ class Stop {
     String? status,
     String? note,
     String? photoPath,
-    String? signaturePath,
+    String? signatureBase64,
     double? accuracy,
     double? speed,
+    int? deleted,
+    DateTime? deletedAt,
   }) {
     return Stop(
       id: id ?? this.id,
       tripId: tripId ?? this.tripId,
       clientId: clientId ?? this.clientId,
       kind: kind ?? this.kind,
+      direction: direction ?? this.direction,
       plannedLatLng: plannedLatLng ?? this.plannedLatLng,
       actualLatLng: actualLatLng ?? this.actualLatLng,
       actualAddress: actualAddress ?? this.actualAddress,
@@ -94,9 +110,11 @@ class Stop {
       status: status ?? this.status,
       note: note ?? this.note,
       photoPath: photoPath ?? this.photoPath,
-      signaturePath: signaturePath ?? this.signaturePath,
+      signatureBase64: signatureBase64 ?? this.signatureBase64,
       accuracy: accuracy ?? this.accuracy,
       speed: speed ?? this.speed,
+      deleted: deleted ?? this.deleted,
+      deletedAt: deletedAt ?? this.deletedAt,
     );
   }
 }

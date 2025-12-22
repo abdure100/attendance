@@ -20,8 +20,8 @@ class AppConfig {
   static String get fmSessionsUrl => '$baseUrl/databases/$database/sessions';
 
   // ===== MCP / Laravel API =====
-  // Your logs showed exchange at: https://eidbi.sphereemr.com/api/auth/exchange-filemaker-token
-  static const String mcpBaseUrl = 'https://eidbi.sphereemr.com/api';
+  // Your logs showed exchange at: https://portal.sphereemr.com/api/auth/exchange-filemaker-token
+  static const String mcpBaseUrl = 'https://portal.sphereemr.com/api';
 
   // ===== Networking =====
   static const int connectionTimeout = 30; // seconds

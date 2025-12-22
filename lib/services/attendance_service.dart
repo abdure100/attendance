@@ -18,6 +18,7 @@ class AttendanceService extends ChangeNotifier {
     required String clientId,
     required String staffId,
     String? note,
+    String? signatureInBase64, // Base64 encoded signature for time-in
   }) async {
     final today = DateTime.now();
     final startOfDay = DateTime(today.year, today.month, today.day);
@@ -47,12 +48,15 @@ class AttendanceService extends ChangeNotifier {
         timeOut: existingAttendance.timeOut,
         capturedBy: staffId,
         note: note ?? existingAttendance.note,
+        signatureInBase64: signatureInBase64,
+        signatureOutBase64: existingAttendance.signatureOutBase64,
       );
 
       await (_database.update(_database.attendances)..where((a) => a.id.equals(existingAttendance.id)))
           .write(AttendancesCompanion(
         timeIn: Value(DateTime.now()),
         note: Value(note ?? existingAttendance.note),
+        signatureInBase64: Value(signatureInBase64),
       ));
     } else {
       // Create new
@@ -64,6 +68,7 @@ class AttendanceService extends ChangeNotifier {
         timeIn: DateTime.now(),
         capturedBy: staffId,
         note: note,
+        signatureInBase64: signatureInBase64,
       );
 
       await _database.into(_database.attendances).insert(
@@ -74,6 +79,7 @@ class AttendanceService extends ChangeNotifier {
           timeIn: Value(DateTime.now()),
           capturedBy: staffId,
           note: Value(note),
+          signatureInBase64: Value(signatureInBase64),
         ),
       );
     }
@@ -90,6 +96,7 @@ class AttendanceService extends ChangeNotifier {
     required String clientId,
     required String staffId,
     String? note,
+    String? signatureOutBase64, // Base64 encoded signature for time-out
   }) async {
     final today = DateTime.now();
     final startOfDay = DateTime(today.year, today.month, today.day);
@@ -119,12 +126,15 @@ class AttendanceService extends ChangeNotifier {
       timeOut: DateTime.now(),
       capturedBy: staffId,
       note: note ?? existing.note,
+      signatureInBase64: existing.signatureInBase64,
+      signatureOutBase64: signatureOutBase64,
     );
 
     await (_database.update(_database.attendances)..where((a) => a.id.equals(existing.id)))
         .write(AttendancesCompanion(
       timeOut: Value(DateTime.now()),
       note: Value(note ?? existing.note),
+      signatureOutBase64: Value(signatureOutBase64),
     ));
 
     // Queue for sync
@@ -156,6 +166,8 @@ class AttendanceService extends ChangeNotifier {
       timeOut: r.timeOut,
       capturedBy: r.capturedBy,
       note: r.note,
+      signatureInBase64: r.signatureInBase64,
+      signatureOutBase64: r.signatureOutBase64,
     )).toList();
   }
 
@@ -183,6 +195,8 @@ class AttendanceService extends ChangeNotifier {
       timeOut: result.timeOut,
       capturedBy: result.capturedBy,
       note: result.note,
+      signatureInBase64: result.signatureInBase64,
+      signatureOutBase64: result.signatureOutBase64,
     );
   }
 
@@ -220,6 +234,8 @@ class AttendanceService extends ChangeNotifier {
       timeOut: updated.timeOut,
       capturedBy: updated.capturedBy,
       note: updated.note,
+      signatureInBase64: updated.signatureInBase64,
+      signatureOutBase64: updated.signatureOutBase64,
     );
 
     // Queue for sync
@@ -260,22 +276,28 @@ class AttendanceService extends ChangeNotifier {
       );
     final todayTrips = await tripsQuery.get();
     
-    // Delete all stops for this client from today's trips
+    // Soft delete all non-deleted stops for this client from today's trips
+    final now = DateTime.now();
     for (final trip in todayTrips) {
       final stopsQuery = _database.select(_database.stops)
         ..where((s) => 
           s.tripId.equals(trip.id) &
-          s.clientId.equals(clientId)
+          s.clientId.equals(clientId) &
+          s.deleted.equals(0) // Only target non-deleted stops
         );
       final clientStops = await stopsQuery.get();
       
       for (final stop in clientStops) {
-        await (_database.delete(_database.stops)..where((s) => s.id.equals(stop.id))).go();
+        // Soft delete: set deleted=1 and deletedAt timestamp
+        await (_database.update(_database.stops)..where((s) => s.id.equals(stop.id)))
+            .write(StopsCompanion(
+              deleted: const Value(1),
+              deletedAt: Value(now),
+            ));
       }
     }
 
-    // Note: We don't queue delete operations for sync as FileMaker doesn't support soft deletes
-    // If you need to track deletions, you could add a 'deleted' flag instead
+    // Note: Soft delete is used - stops are marked as deleted but remain in database
     
     notifyListeners();
   }

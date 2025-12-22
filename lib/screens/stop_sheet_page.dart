@@ -5,6 +5,7 @@ import '../models/stop.dart' as models;
 import '../models/client.dart';
 import '../services/trip_service.dart';
 import '../services/filemaker_service.dart';
+import '../services/offline_sync_service.dart';
 
 /// Stop Sheet screen showing chronological log of all pickups/dropoffs
 class StopSheetPage extends StatefulWidget {
@@ -283,7 +284,8 @@ class _StopSheetPageState extends State<StopSheetPage> {
     if (result == true && mounted) {
       try {
         final tripService = Provider.of<TripService>(context, listen: false);
-        await tripService.deleteStop(stop.id!);
+        final offlineSyncService = Provider.of<OfflineSyncService>(context, listen: false);
+        await tripService.deleteStop(stop.id!, offlineSyncService: offlineSyncService);
         await _loadStops();
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
