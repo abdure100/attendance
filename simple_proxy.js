@@ -10,7 +10,7 @@ app.use(cors());
 
 // Proxy FileMaker API requests
 app.use('/fmi', createProxyMiddleware({
-  target: 'https://fms.sphereemr.com',
+  target: 'https://db.sphereemr.com',
   changeOrigin: true,
   secure: true,
   onError: (err, req, res) => {

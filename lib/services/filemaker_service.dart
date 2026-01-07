@@ -543,15 +543,17 @@ class FileMakerService extends ChangeNotifier {
   Future<Staff?> getStaffByEmail(String email, {String? companyId}) async {
     await _ensureAuthenticated();
 
-    // Build query with email and optional company filter
-    final queryConditions = [
-      {'email': '==${email.trim()}'},
+    final trimmedEmail = email.trim();
+    
+    // Build query with email filter only
+    final queryConditions = <Map<String, String>>[
+      {'email': '==$trimmedEmail'},
     ];
     
-    // Add company filter if provided, or use current company ID if available
+    // Add company filter if provided
     final companyToFilter = companyId ?? _currentCompanyId;
     if (companyToFilter != null && companyToFilter.isNotEmpty) {
-      queryConditions.add({'Company': '==$companyToFilter'});
+      queryConditions[0]['Company'] = '==$companyToFilter';
       DebugLogger.log('🔍 Filtering staff by company: $companyToFilter');
     } else {
       DebugLogger.warn('No company filter applied (companyId: $companyId, _currentCompanyId: $_currentCompanyId)');
@@ -1018,6 +1020,181 @@ class FileMakerService extends ChangeNotifier {
       DebugLogger.error('Error fetching stops from FileMaker', e, stackTrace);
       return [];
     }
+  }
+
+  /// Get ALL client status from FileMaker server for a given date/direction
+  /// This fetches stops across ALL drivers' trips so everyone sees coordinated status
+  /// Returns a map of clientId -> status string (e.g., "Picked (8:30 AM)", "Dropped (8:30 AM / 3:00 PM)")
+  /// Also populates clientOwnership map with tripId that owns each client's stops
+  Future<Map<String, String>> getClientStatusFromServer({
+    required String date, // Format: MM/DD/YYYY
+    required String direction, // AM or PM
+    required List<Client> clients,
+    required String companyId,
+  }) async {
+    await ensureAuthenticated();
+    
+    final statusMap = <String, String>{};
+    
+    // Initialize all clients as "Not picked"
+    for (final client in clients) {
+      statusMap[client.id] = 'Not picked';
+    }
+    
+    if (clients.isEmpty) return statusMap;
+    
+    try {
+      DebugLogger.log('🔍 Fetching coordinated status from FileMaker for $date ($direction)');
+      
+      // Step 1: Find ALL trips for this date + direction (across all drivers)
+      // Note: Trips don't have Company field - they have driverId, date, direction
+      // We filter by date and direction, then the clients are already company-filtered
+      final tripsResponse = await _dio.post(
+        '/databases/$database/layouts/dapi-api_trips/_find',
+        data: {
+          'query': [
+            {
+              'date': '==$date',
+              'direction': '==$direction',
+            },
+          ],
+          'limit': 100, // All drivers' trips for this date/direction
+        },
+        options: Options(
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer $_token',
+            'Accept': 'application/json',
+          },
+        ),
+      );
+
+      final tripIds = <String>[];
+      if (tripsResponse.statusCode == 200) {
+        final data = tripsResponse.data as Map<String, dynamic>;
+        final records = (data['response']?['data'] as List?) ?? const [];
+        for (final record in records) {
+          final fieldData = record['fieldData'] as Map<String, dynamic>?;
+          final tripId = fieldData?['PrimaryKey']?.toString();
+          if (tripId != null && tripId.isNotEmpty) {
+            tripIds.add(tripId);
+          }
+        }
+      }
+      
+      if (tripIds.isEmpty) {
+        DebugLogger.log('No trips found for $date ($direction) - all clients pending');
+        return statusMap;
+      }
+      
+      DebugLogger.log('📊 Found ${tripIds.length} trips for $date ($direction)');
+      
+      // Step 2: Get ALL stops for all those trips
+      final allStops = <Map<String, dynamic>>[];
+      for (final tripId in tripIds) {
+        final stops = await getStopsByTripId(tripId);
+        allStops.addAll(stops);
+      }
+      
+      DebugLogger.log('📊 Found ${allStops.length} total stops across all trips');
+      
+      // Step 3: Group by clientId and calculate status
+      final clientStops = <String, List<Map<String, dynamic>>>{};
+      for (final stop in allStops) {
+        final clientId = stop['clientId']?.toString() ?? '';
+        if (clientId.isNotEmpty) {
+          clientStops.putIfAbsent(clientId, () => []).add(stop);
+        }
+      }
+      
+      // Calculate status for each client
+      for (final client in clients) {
+        final stops = clientStops[client.id] ?? [];
+        
+        // Find pickup and dropoff stops (done status)
+        Map<String, dynamic>? pickup;
+        Map<String, dynamic>? dropoff;
+        
+        for (final stop in stops) {
+          final kind = stop['kind']?.toString() ?? '';
+          final status = stop['status']?.toString() ?? '';
+          
+          if (kind == 'pickup' && status == 'done') {
+            pickup = stop;
+          } else if (kind == 'dropoff' && status == 'done') {
+            dropoff = stop;
+          }
+        }
+        
+        // Determine status string with times and ownership info
+        // Format: "status|tripId" so we can parse and check ownership
+        if (pickup != null && dropoff != null) {
+          final pickupTime = _formatStopTimestamp(pickup['timestamp']);
+          final dropoffTime = _formatStopTimestamp(dropoff['timestamp']);
+          final tripId = pickup['tripId']?.toString() ?? '';
+          statusMap[client.id] = 'Dropped ($pickupTime / $dropoffTime)|$tripId';
+        } else if (pickup != null) {
+          final pickupTime = _formatStopTimestamp(pickup['timestamp']);
+          final tripId = pickup['tripId']?.toString() ?? '';
+          statusMap[client.id] = 'Picked ($pickupTime)|$tripId';
+        }
+        // else stays "Not picked" (no ownership)
+      }
+      
+      final activeCount = statusMap.entries.where((e) => e.value != 'Not picked').length;
+      DebugLogger.success('✅ Coordinated status: $activeCount clients with activity');
+      
+      return statusMap;
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 401) {
+        DebugLogger.log('No trips found in FileMaker for $date (all clients pending)');
+        return statusMap;
+      }
+      DebugLogger.error('Error fetching coordinated status from FileMaker', e, e.stackTrace);
+      return statusMap;
+    } catch (e, stackTrace) {
+      DebugLogger.error('Error fetching coordinated status from FileMaker', e, stackTrace);
+      return statusMap;
+    }
+  }
+  
+  /// Format stop timestamp to time string (e.g., "8:30 AM")
+  String _formatStopTimestamp(dynamic timestamp) {
+    if (timestamp == null) return '';
+    
+    try {
+      DateTime? dt;
+      if (timestamp is Map) {
+        // {"date":"M/D/YYYY","time":"H:MM:SS"}
+        final time = timestamp['time']?.toString() ?? '';
+        if (time.isNotEmpty) {
+          final parts = time.split(':');
+          if (parts.length >= 2) {
+            int hour = int.tryParse(parts[0]) ?? 0;
+            final minute = parts[1];
+            final period = hour >= 12 ? 'PM' : 'AM';
+            if (hour > 12) hour -= 12;
+            if (hour == 0) hour = 12;
+            return '$hour:$minute $period';
+          }
+        }
+      } else if (timestamp is String) {
+        dt = DateTime.tryParse(timestamp);
+      }
+      
+      if (dt != null) {
+        int hour = dt.hour;
+        final minute = dt.minute.toString().padLeft(2, '0');
+        final period = hour >= 12 ? 'PM' : 'AM';
+        if (hour > 12) hour -= 12;
+        if (hour == 0) hour = 12;
+        return '$hour:$minute $period';
+      }
+    } catch (e) {
+      // Ignore parsing errors
+    }
+    
+    return '';
   }
 
   /// Get PrimaryKey from a recordId

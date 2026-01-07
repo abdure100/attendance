@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:provider/provider.dart';
@@ -37,6 +38,7 @@ class _DriverHomePageState extends State<DriverHomePage> {
   String _selectedDirection = 'AM';
   TripService? _tripService;
   AttendanceService? _attendanceService;
+  Timer? _autoRefreshTimer;
 
   @override
   void initState() {
@@ -46,8 +48,20 @@ class _DriverHomePageState extends State<DriverHomePage> {
     Future.microtask(() {
       if (mounted) {
         _loadTrip();
+        _startAutoRefresh();
       } else {
         DebugLogger.warn('Widget not mounted, skipping _loadTrip()');
+      }
+    });
+  }
+  
+  /// Start auto-refresh timer to sync status from server every 30 seconds
+  void _startAutoRefresh() {
+    _autoRefreshTimer?.cancel();
+    _autoRefreshTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (mounted && _assignedClients.isNotEmpty) {
+        DebugLogger.log('⏰ Auto-refreshing coordinated status from server...');
+        _refreshClientStatus();
       }
     });
   }
@@ -70,6 +84,8 @@ class _DriverHomePageState extends State<DriverHomePage> {
 
   @override
   void dispose() {
+    // Cancel auto-refresh timer
+    _autoRefreshTimer?.cancel();
     // Remove listeners
     _tripService?.removeListener(_onTripServiceChanged);
     _attendanceService?.removeListener(_onAttendanceServiceChanged);
@@ -90,6 +106,45 @@ class _DriverHomePageState extends State<DriverHomePage> {
   }
 
   Future<void> _refreshClientStatus() async {
+    if (_assignedClients.isEmpty) return;
+    
+    try {
+      final fileMakerService = Provider.of<FileMakerService>(context, listen: false);
+      
+      // Format today's date for FileMaker (MM/DD/YYYY)
+      final today = DateTime.now();
+      final dateStr = '${today.month.toString().padLeft(2, '0')}/${today.day.toString().padLeft(2, '0')}/${today.year}';
+      
+      // Fetch COORDINATED status from FileMaker server
+      // This queries ALL trips for today (across all drivers) so everyone sees same status
+      final companyId = fileMakerService.currentCompanyId;
+      if (companyId == null) {
+        DebugLogger.warn('No company ID available for coordinated status');
+        return;
+      }
+      
+      final updatedStatus = await fileMakerService.getClientStatusFromServer(
+        date: dateStr,
+        direction: _selectedDirection,
+        clients: _assignedClients,
+        companyId: companyId,
+      );
+      
+      if (mounted) {
+        setState(() {
+          _clientStatus = updatedStatus;
+        });
+        DebugLogger.log('🔄 Coordinated status refreshed from SERVER: ${_clientStatus.length} clients');
+      }
+    } catch (e, stackTrace) {
+      DebugLogger.error('Error refreshing coordinated status from server', e, stackTrace);
+      // Fall back to local status if server fails
+      await _refreshClientStatusFromLocal();
+    }
+  }
+  
+  /// Fallback to local database status when server is unavailable
+  Future<void> _refreshClientStatusFromLocal() async {
     if (_todayTrip == null || _assignedClients.isEmpty) return;
     
     try {
@@ -102,10 +157,10 @@ class _DriverHomePageState extends State<DriverHomePage> {
         setState(() {
           _clientStatus = updatedStatus;
         });
-        DebugLogger.log('🔄 Client status refreshed: ${_clientStatus.length} clients');
+        DebugLogger.log('🔄 Client status refreshed from LOCAL: ${_clientStatus.length} clients');
       }
     } catch (e, stackTrace) {
-      DebugLogger.error('Error refreshing client status', e, stackTrace);
+      DebugLogger.error('Error refreshing client status from local', e, stackTrace);
     }
   }
 
@@ -250,24 +305,33 @@ class _DriverHomePageState extends State<DriverHomePage> {
         }
       }
       
-      if (_todayTrip != null && _assignedClients.isNotEmpty) {
-        // Sync stops from FileMaker to local database (to know which are completed)
-        await tripService.syncStopsFromFileMaker(
-          tripId: _todayTrip!.id!,
-          fileMakerService: fileMakerService,
-        );
+      // Load COORDINATED client status from server (across ALL drivers' trips)
+      // This ensures all drivers see the same pickup/dropoff status
+      if (_assignedClients.isNotEmpty && fileMakerService.currentCompanyId != null) {
+        final today = DateTime.now();
+        final dateStr = '${today.month.toString().padLeft(2, '0')}/${today.day.toString().padLeft(2, '0')}/${today.year}';
         
-        _clientStatus = await tripService.getClientStatus(
-          tripId: _todayTrip!.id!,
+        _clientStatus = await fileMakerService.getClientStatusFromServer(
+          date: dateStr,
+          direction: _selectedDirection,
           clients: _assignedClients,
+          companyId: fileMakerService.currentCompanyId!,
         );
-        DebugLogger.log('✅ Client status loaded: ${_clientStatus.length} clients');
+        DebugLogger.log('✅ Coordinated status loaded from server: ${_clientStatus.length} clients');
+        
+        // Also sync stops for local trip if exists (for offline capability)
+        if (_todayTrip != null) {
+          await tripService.syncStopsFromFileMaker(
+            tripId: _todayTrip!.id!,
+            fileMakerService: fileMakerService,
+          );
+        }
       } else if (_assignedClients.isNotEmpty) {
-        // No trip yet - all clients are "Not picked"
+        // Fallback if no company ID
         _clientStatus = {
           for (var client in _assignedClients) client.id: 'Not picked'
         };
-        DebugLogger.log('📝 No trip yet - all clients marked as "Not picked"');
+        DebugLogger.log('📝 No company ID - all clients marked as "Not picked"');
       }
     } catch (e, stackTrace) {
       DebugLogger.error('Error loading trip', e, stackTrace);
@@ -455,6 +519,100 @@ class _DriverHomePageState extends State<DriverHomePage> {
     } else {
       return Colors.grey;
     }
+  }
+
+  /// Build summary cards showing route statistics
+  Widget _buildSummaryCards() {
+    // Calculate stats from client status
+    int totalClients = _assignedClients.length;
+    int pickedUp = 0;
+    int droppedOff = 0;
+    int pending = 0;
+    
+    for (var client in _assignedClients) {
+      final status = _clientStatus[client.id] ?? 'Not picked';
+      if (status.startsWith('Dropped')) {
+        droppedOff++;
+        pickedUp++; // If dropped, they were also picked up
+      } else if (status.startsWith('Picked')) {
+        pickedUp++;
+      } else {
+        pending++;
+      }
+    }
+    
+    return Row(
+      children: [
+        Expanded(
+          child: _buildSummaryCard(
+            'Total',
+            totalClients.toString(),
+            Icons.people,
+            Colors.blue,
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: _buildSummaryCard(
+            'Picked Up',
+            pickedUp.toString(),
+            Icons.login,
+            Colors.orange,
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: _buildSummaryCard(
+            'Dropped Off',
+            droppedOff.toString(),
+            Icons.logout,
+            Colors.green,
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: _buildSummaryCard(
+            'Pending',
+            pending.toString(),
+            Icons.pending,
+            Colors.grey,
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Build a single summary card
+  Widget _buildSummaryCard(String label, String value, IconData icon, Color color) {
+    return Card(
+      elevation: 2,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, color: color, size: 24),
+            const SizedBox(height: 4),
+            Text(
+              value,
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: color,
+              ),
+            ),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 10,
+                color: Colors.grey[600],
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   /// Get initials from driver name
@@ -756,6 +914,12 @@ class _DriverHomePageState extends State<DriverHomePage> {
                         ),
                       ),
                       
+                      // Summary Cards
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: _buildSummaryCards(),
+                      ),
+                      
                       // Clients list
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -784,8 +948,28 @@ class _DriverHomePageState extends State<DriverHomePage> {
                           itemCount: _assignedClients.length,
                           itemBuilder: (context, index) {
                             final client = _assignedClients[index];
-                            final status = _clientStatus[client.id] ?? 'Not picked';
-                            final statusColor = _getStatusColor(status);
+                            final rawStatus = _clientStatus[client.id] ?? 'Not picked';
+                            
+                            // Parse status and ownership: "Picked (8:30 AM)|tripId"
+                            String displayStatus;
+                            String? owningTripId;
+                            if (rawStatus.contains('|')) {
+                              final parts = rawStatus.split('|');
+                              displayStatus = parts[0];
+                              owningTripId = parts.length > 1 ? parts[1] : null;
+                            } else {
+                              displayStatus = rawStatus;
+                            }
+                            
+                            final statusColor = _getStatusColor(displayStatus);
+                            
+                            // Check if current driver owns this client's stops
+                            final bool isOwnedByCurrentDriver = owningTripId == null || 
+                                owningTripId.isEmpty || 
+                                _todayTrip?.id == owningTripId;
+                            final bool isOwnedByOtherDriver = owningTripId != null && 
+                                owningTripId.isNotEmpty && 
+                                _todayTrip?.id != owningTripId;
                             
                             return Card(
                               margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
@@ -801,7 +985,7 @@ class _DriverHomePageState extends State<DriverHomePage> {
                                         borderRadius: BorderRadius.circular(12),
                                       ),
                                       child: Text(
-                                        status,
+                                        displayStatus,
                                         style: TextStyle(
                                           color: statusColor,
                                           fontSize: 12,
@@ -809,16 +993,24 @@ class _DriverHomePageState extends State<DriverHomePage> {
                                         ),
                                       ),
                                     ),
+                                    // Show lock icon if owned by another driver
+                                    if (isOwnedByOtherDriver) ...[
+                                      const SizedBox(width: 6),
+                                      Icon(Icons.lock, size: 14, color: Colors.grey[600]),
+                                    ],
                                   ],
                                 ),
-                                trailing: !status.startsWith('Dropped')
-                                    ? IconButton(
-                                        icon: const Icon(Icons.check_circle),
-                                        color: status.startsWith('Not picked') ? Colors.blue : Colors.green,
-                                        onPressed: status.startsWith('Not picked')
-                                            ? () => _handlePickup(client)
-                                            : () => _handleDropoff(client),
-                                        tooltip: status.startsWith('Not picked') ? 'Pick Up' : 'Drop Off',
+                                trailing: !displayStatus.startsWith('Dropped')
+                                    ? (isOwnedByCurrentDriver
+                                        ? IconButton(
+                                            icon: const Icon(Icons.check_circle),
+                                            color: displayStatus.startsWith('Not picked') ? Colors.blue : Colors.green,
+                                            onPressed: displayStatus.startsWith('Not picked')
+                                                ? () => _handlePickup(client)
+                                                : () => _handleDropoff(client),
+                                            tooltip: displayStatus.startsWith('Not picked') ? 'Pick Up' : 'Drop Off',
+                                          )
+                                        : Icon(Icons.lock, color: Colors.grey[400]) // Locked by other driver
                                       )
                                     : null,
                                 isThreeLine: false,

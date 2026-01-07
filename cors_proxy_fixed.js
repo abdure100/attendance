@@ -21,7 +21,7 @@ app.use((req, res, next) => {
 // ✅ Mount the proxy AFTER CORS handling
 app.use('/fmi',
   createProxyMiddleware({
-    target: 'https://fms.sphereemr.com',
+    target: 'https://db.sphereemr.com',
     changeOrigin: true,
     secure: true,
     // Let the proxy return FM's body as-is (including error messages[])

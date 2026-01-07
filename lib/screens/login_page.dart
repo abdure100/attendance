@@ -302,6 +302,124 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
+  // Test accounts for quick login (db.sphereemr.com passwords)
+  static const List<Map<String, String>> _testAccounts = [
+    {'name': 'Driver 1', 'email': 'driver1@sunshinedp.com', 'password': 'Sunshinedp321\$'},
+    {'name': 'Driver 2', 'email': 'driver2@sunshinedp.com', 'password': 'Sunshinedp321\$'},
+    {'name': 'Sunshine Admin', 'email': 'info@sunshinedayprogram.com', 'password': 'Sunshinedp321\$'},
+  ];
+
+  /// Show debug information dialog
+  void _showDebugInfo() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.bug_report, color: Colors.orange),
+            SizedBox(width: 8),
+            Text('Debug Info'),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _debugRow('App Version', AppConfig.appVersion),
+              _debugRow('FM Base URL', AppConfig.baseUrl),
+              _debugRow('FM Database', AppConfig.database),
+              _debugRow('MCP Base URL', AppConfig.mcpBaseUrl),
+              _debugRow('FM Username', AppConfig.username ?? 'Not set'),
+              _debugRow('Sanctum Token', AppConfig.sanctumToken != null ? '${AppConfig.sanctumToken!.substring(0, 20)}...' : 'Not set'),
+              const Divider(),
+              _debugRow('Connection Timeout', '${AppConfig.connectionTimeout}s'),
+              _debugRow('Receive Timeout', '${AppConfig.receiveTimeout}s'),
+              const Divider(),
+              const Text('Entered Credentials:', style: TextStyle(fontWeight: FontWeight.bold)),
+              _debugRow('Email', _usernameController.text.isEmpty ? '(empty)' : _usernameController.text),
+              _debugRow('Password', _passwordController.text.isEmpty ? '(empty)' : '****'),
+              _debugRow('Remember Me', _rememberMe.toString()),
+              const Divider(),
+              const Text('Quick Fill Test Accounts:', style: TextStyle(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 8),
+              ..._testAccounts.map((account) => Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton(
+                    onPressed: () {
+                      setState(() {
+                        _usernameController.text = account['email']!;
+                        _passwordController.text = account['password']!;
+                      });
+                      Navigator.pop(context);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('Filled: ${account['name']}')),
+                      );
+                    },
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+                    ),
+                    child: Text(account['name']!, style: const TextStyle(fontSize: 12)),
+                  ),
+                ),
+              )),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              // Copy debug info to clipboard
+              final debugText = '''
+App Version: ${AppConfig.appVersion}
+FM Base URL: ${AppConfig.baseUrl}
+FM Database: ${AppConfig.database}
+MCP Base URL: ${AppConfig.mcpBaseUrl}
+FM Username: ${AppConfig.username ?? 'Not set'}
+Email: ${_usernameController.text}
+''';
+              DebugLogger.log('📋 Debug Info:\n$debugText');
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Debug info logged to console')),
+              );
+            },
+            child: const Text('Log to Console'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _debugRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 120,
+            child: Text(
+              '$label:',
+              style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 12),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: TextStyle(fontSize: 12, color: Colors.grey[700]),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   /// Show layout selection dialog for Admin/Supervisor/superAdmin
   Future<void> _showLayoutSelectionDialog(Staff staff) async {
     final result = await showDialog<String>(
@@ -518,17 +636,17 @@ class _LoginPageState extends State<LoginPage> {
                                 ),
                         ),
                       ),
-                      // MCP Test button hidden
-                      // const SizedBox(height: 8),
-                      // TextButton.icon(
-                      //   onPressed: () => Navigator.pushNamed(context, '/mcp-test'),
-                      //   icon: const Icon(Icons.science, size: 18),
-                      //   label: const Text('MCP API Test'),
-                      //   style: TextButton.styleFrom(
-                      //     foregroundColor: Colors.grey[600],
-                      //   ),
-                      // ),
                       const SizedBox(height: 16),
+                      
+                      // Debug Button
+                      TextButton.icon(
+                        onPressed: () => _showDebugInfo(),
+                        icon: const Icon(Icons.bug_report, size: 18),
+                        label: const Text('Debug Info'),
+                        style: TextButton.styleFrom(
+                          foregroundColor: Colors.grey[600],
+                        ),
+                      ),
                     ],
                   ),
                 ),
