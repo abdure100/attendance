@@ -54,6 +54,14 @@ android {
     }
 
     buildTypes {
+        debug {
+            // Use release signing for debug builds to allow updates on kiosk devices
+            signingConfig = if (keystorePropertiesFile.exists()) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
+        }
         release {
             signingConfig = if (keystorePropertiesFile.exists()) {
                 signingConfigs.getByName("release")

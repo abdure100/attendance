@@ -48,9 +48,10 @@ class MainActivity : FlutterActivity() {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         
         // Start kiosk mode if device owner
-        if (isDeviceOwner()) {
-            startKioskMode()
-        }
+        // DISABLED: Kiosk mode auto-start disabled for development
+        // if (isDeviceOwner()) {
+        //     startKioskMode()
+        // }
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -189,8 +190,9 @@ class MainActivity : FlutterActivity() {
         hideSystemUI()
         
         // Re-enable kiosk mode if device owner and not already in kiosk
-        if (isDeviceOwner() && !isKioskModeActive()) {
-            startKioskMode()
-        }
+        // DISABLED: Kiosk mode auto-start disabled for development
+        // if (isDeviceOwner() && !isKioskModeActive()) {
+        //     startKioskMode()
+        // }
     }
 }

@@ -23,7 +23,7 @@ class _LoginPageState extends State<LoginPage> {
   final _passwordController = TextEditingController();
   bool _isLoading = false;
   bool _obscurePassword = true;
-  bool _rememberMe = false;
+  bool _rememberMe = true; // Default to remember credentials
 
   // Keys for SharedPreferences
   static const String _keyRememberMe = 'remember_me';
